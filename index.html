@@ -1,0 +1,963 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>body{margin:0}[hidden]{display:none!important}</style></head><body><title>Проект участка 6 соток</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Mono&family=PT+Sans+Narrow:wght@400;700&family=PT+Sans:wght@400;700&display=swap">
+<style>
+/* Layout: инженерный лист. Слева исходные данные, в центре 3D-модель и разрез, справа ведомость объёмов и проверки */
+:root{
+  --paper:#e8ece9; --sheet:#f8faf8; --ink:#1b282d; --ink-2:#56656a; --rule:#cbd4d0; --rule-2:#e1e7e4;
+  --accent:#1f5f9c; --accent-soft:#dce8f4; --on-accent:#ffffff;
+  --ok:#2b7747; --ok-soft:#dcefe2; --warn:#a2560a; --warn-soft:#f6e7d4; --info:#43617a; --info-soft:#e2eaf1;
+  --scene:#dce3df; --chip:rgba(248,250,248,.93); --chip-ink:#1b282d; --stake:#c2410c;
+  --m-soil:#7b5b3e; --m-topsoil:#4c3a26; --m-g1:#86898c; --m-g2:#aeb1b4; --m-sand:#d6bb80;
+  --m-road:#3b3e42; --m-roadbed:#9a8a74; --m-fill:#a4835c; --m-label:#15191b; --m-halo:rgba(255,255,255,.7);
+  --f-ui:"PT Sans","Segoe UI",Roboto,Arial,sans-serif;
+  --f-head:"PT Sans Narrow","Arial Narrow","PT Sans",sans-serif;
+  --f-mono:"PT Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#101618; --sheet:#172024; --ink:#e1e8e5; --ink-2:#97a6ab; --rule:#2c383d; --rule-2:#212b2f;
+    --accent:#6ea9e3; --accent-soft:#1c3247; --on-accent:#0a1824;
+    --ok:#6cc28b; --ok-soft:#1a3225; --warn:#e5a25d; --warn-soft:#3a2a17; --info:#9db9d0; --info-soft:#1d2b37;
+    --scene:#1a2327; --chip:rgba(23,32,36,.92); --chip-ink:#e1e8e5; --stake:#f0773f;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#101618; --sheet:#172024; --ink:#e1e8e5; --ink-2:#97a6ab; --rule:#2c383d; --rule-2:#212b2f;
+  --accent:#6ea9e3; --accent-soft:#1c3247; --on-accent:#0a1824;
+  --ok:#6cc28b; --ok-soft:#1a3225; --warn:#e5a25d; --warn-soft:#3a2a17; --info:#9db9d0; --info-soft:#1d2b37;
+  --scene:#1a2327; --chip:rgba(23,32,36,.92); --chip-ink:#e1e8e5; --stake:#f0773f;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-ui);font-size:14px;line-height:1.4}
+*{box-sizing:border-box}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{height:100%;display:grid;gap:12px;padding-block:12px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  grid-template-columns:340px minmax(0,1fr);grid-template-areas:"side main"}
+.side{grid-area:side;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px}
+.main{grid-area:main;min-height:0;min-width:0;display:grid;grid-template-rows:minmax(0,1fr) 280px;gap:12px}
+@media (min-width:1300px){
+  .app{grid-template-columns:320px minmax(0,1fr) 340px;grid-template-areas:"ctrl main res"}
+  .side{display:contents}
+  .ctrl{grid-area:ctrl;min-height:0;overflow:auto}
+  .res{grid-area:res;min-height:0;overflow:auto}
+}
+.mob-only{display:none}
+/* Телефон: окно модели прилипает к верху экрана, параметры прокручиваются под ним */
+@media (max-width:820px){
+  html,body{height:auto}
+  body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--paper)}
+  .app{height:auto;display:flex;flex-direction:column;gap:10px;padding-block:0 16px}
+  .main,.side{display:contents}
+  .view{order:0;position:sticky;top:env(safe-area-inset-top,0px);z-index:6;height:46vh;min-height:280px;
+    margin-left:calc(-1 * max(16px, env(safe-area-inset-left,0px)));margin-right:calc(-1 * max(16px, env(safe-area-inset-right,0px)));
+    border-radius:0;border-width:0 0 1px;transition:height .25s ease}
+  .view.compact{height:24vh;min-height:170px}
+  .view.compact .ov.bl{display:none}
+  .ctrl{order:1} .sec{order:2} .res{order:3}
+  .ctrl,.res{overflow:visible}
+  .ov.tl{left:max(10px,env(safe-area-inset-left,0px));right:56px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .ov.tl::-webkit-scrollbar{display:none}
+  .ov.tl .btn{flex:none;padding:6px 10px}
+  .ov.tr{right:max(10px,env(safe-area-inset-right,0px))}
+  .stage-chip{display:none}
+  .mob-only{display:inline-flex}
+  .ov.bl{left:max(10px,env(safe-area-inset-left,0px));padding:4px 6px}
+  .lg{font-size:11px}
+  .lbl{font-size:11px;padding:1px 5px}
+  .lbl.edge{font-size:12px}
+  .lbl.corner{font-size:13px}
+  .sec-ctl{width:100%}
+  .sec-ctl input[type=range]{flex:1 1 120px;width:auto}
+  .prm input[type=range]{height:28px}
+  .prm .num input{width:70px;padding:4px}
+  .stages button{padding:8px}
+}
+@media (max-width:420px){.ov.tl .btn{font-size:12.5px;padding:5px 8px}}
+
+.card{background:var(--sheet);border:1px solid var(--rule);border-radius:6px}
+.ctrl,.res{display:flex;flex-direction:column}
+.head{padding:14px 16px 12px;border-bottom:1px solid var(--rule)}
+.head h1{font-family:var(--f-head);font-size:22px;line-height:1.1;margin:0;font-weight:700;text-wrap:balance}
+.head p{margin:4px 0 0;color:var(--ink-2);font-size:13px}
+.blk{padding:12px 16px;border-bottom:1px solid var(--rule-2)}
+.blk:last-child{border-bottom:0}
+.cap{font-family:var(--f-head);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);margin:0 0 8px;font-weight:700}
+
+.stages{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.stages button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:6px 8px;border:1px solid var(--rule);
+  border-radius:4px;background:transparent;cursor:pointer;text-align:left;font-size:12.5px;line-height:1.15}
+.stages button b{font-family:var(--f-mono);font-weight:400;font-size:11px;color:var(--ink-2)}
+.stages button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.stages button[aria-pressed="true"] b{color:var(--on-accent);opacity:.8}
+.stage-txt{margin:8px 0 0;font-size:13px;color:var(--ink);min-height:3.6em}
+.row-btns{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.btn{border:1px solid var(--rule);background:var(--sheet);border-radius:4px;padding:5px 10px;cursor:pointer;font-size:13px}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+
+details.grp{border-bottom:1px solid var(--rule-2)}
+details.grp:last-child{border-bottom:0}
+details.grp summary{cursor:pointer;padding:10px 16px;font-family:var(--f-head);font-weight:700;font-size:15px;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.grp summary::-webkit-details-marker{display:none}
+details.grp summary::after{content:"+";font-family:var(--f-mono);color:var(--ink-2)}
+details.grp[open] summary::after{content:"−"}
+.grp-body{padding:0 16px 12px;display:flex;flex-direction:column;gap:10px}
+.prm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;align-items:center}
+.prm label{font-size:13px}
+.prm .num{display:flex;align-items:center;gap:4px}
+.prm .num input{width:64px;padding:2px 4px;border:1px solid var(--rule);border-radius:3px;background:var(--paper);font-family:var(--f-mono);font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
+.prm .num i{font-style:normal;font-size:12px;color:var(--ink-2);min-width:30px}
+.prm input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent);margin:0}
+.prm small{grid-column:1/-1;color:var(--ink-2);font-size:12px}
+.seg{display:flex;border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+.seg button{flex:1;border:0;background:transparent;padding:5px 8px;cursor:pointer;font-size:12.5px;line-height:1.2}
+.seg button+button{border-left:1px solid var(--rule)}
+.seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.tog{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
+.tog input{accent-color:var(--accent);width:16px;height:16px;margin:0}
+.note{font-size:12px;color:var(--ink-2);margin:0}
+
+.view{position:relative;background:var(--scene);border:1px solid var(--rule);border-radius:6px;overflow:hidden;min-height:0;touch-action:none}
+.view canvas{display:block}
+.no3d{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:24px;text-align:center;color:var(--ink-2);z-index:1}
+.no3d b{font-family:var(--f-head);font-size:18px;color:var(--ink)}
+.ov{position:absolute;z-index:3;display:flex;gap:6px;flex-wrap:wrap}
+.ov.tl{top:10px;left:10px}
+.ov.tr{top:10px;right:10px;justify-content:flex-end}
+.ov.bl{bottom:10px;left:10px;flex-direction:column;gap:3px;background:var(--chip);border:1px solid var(--rule);border-radius:4px;padding:6px 8px}
+.ov .btn{background:var(--chip);backdrop-filter:blur(4px)}
+.stage-chip{background:var(--chip);border:1px solid var(--rule);border-radius:4px;padding:5px 10px;font-size:13px}
+.stage-chip b{font-family:var(--f-head);font-size:14px}
+.lg{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--chip-ink)}
+.lg i{width:14px;height:10px;border-radius:2px;display:inline-block;border:1px solid rgba(0,0,0,.25)}
+.hint{position:absolute;right:10px;bottom:10px;font-size:11.5px;color:var(--ink-2);background:var(--chip);padding:3px 8px;border-radius:4px;z-index:3}
+@media (max-width:600px){.hint{display:none}}
+
+.lbl{font-family:var(--f-ui);font-size:12px;line-height:1.15;background:var(--chip);color:var(--chip-ink);border:1px solid var(--rule);
+  padding:2px 6px;border-radius:3px;white-space:nowrap;pointer-events:none}
+.lbl.corner{font-family:var(--f-head);font-weight:700;font-size:15px;background:var(--stake);color:#fff;border-color:transparent;padding:1px 7px;border-radius:50%}
+.lbl.edge{font-family:var(--f-head);font-weight:700;font-size:14px}
+.lbl.low{background:var(--accent);color:var(--on-accent);border-color:transparent}
+.lbl.road{font-family:var(--f-head);letter-spacing:.08em;text-transform:uppercase;font-size:12px;background:transparent;border-color:transparent;color:#e9ecef}
+.lbl.muted{color:var(--ink-2)}
+
+.sec{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.sec-head{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--rule-2)}
+.sec-head h2{margin:0;font-family:var(--f-head);font-size:16px;font-weight:700;min-width:0;flex:1 1 260px}
+.sec-head h2 span{font-family:var(--f-ui);font-weight:400;font-size:12.5px;color:var(--ink-2);margin-left:6px}
+.sec-ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sec-ctl input[type=range]{width:140px;accent-color:var(--accent)}
+.sec-ctl output{font-family:var(--f-mono);font-size:12px;min-width:56px;font-variant-numeric:tabular-nums}
+.secbox{flex:1;min-height:0;position:relative}
+@media (max-width:820px){.secbox{height:250px;flex:none}}
+.secbox svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+svg .b-soil{fill:var(--m-soil)} svg .b-topsoil{fill:var(--m-topsoil)} svg .b-g1{fill:var(--m-g1)} svg .b-g2{fill:var(--m-g2)}
+svg .b-sand{fill:var(--m-sand)} svg .b-road{fill:var(--m-road)} svg .b-roadbed{fill:var(--m-roadbed)} svg .b-fill{fill:var(--m-fill)}
+svg .ax{font-family:var(--f-mono);font-size:10.5px;fill:var(--ink-2)}
+svg .grid{stroke:var(--ink);stroke-opacity:.12;stroke-width:1}
+svg .ref0{stroke:var(--accent);stroke-width:1.2;stroke-dasharray:6 4;fill:none}
+svg .refn{stroke:var(--ink-2);stroke-width:1;stroke-dasharray:3 3;fill:none}
+svg .vline{stroke:var(--ink-2);stroke-width:1;stroke-dasharray:2 3;opacity:.7}
+svg .surf{fill:none;stroke:var(--ink);stroke-width:1.2;stroke-opacity:.55}
+svg .tx{font-family:var(--f-ui);font-size:11.5px;fill:var(--ink)}
+svg .txa{font-family:var(--f-ui);font-size:11.5px;fill:var(--accent);font-weight:700}
+svg .inb{font-family:var(--f-ui);font-size:11.5px;fill:var(--m-label);stroke:var(--m-halo);stroke-width:3px;paint-order:stroke;font-weight:700}
+svg .mk{fill:var(--ink)}
+svg .dim{stroke:var(--ink);stroke-width:1}
+
+.figs{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.fig span{display:block;font-size:12px;color:var(--ink-2)}
+.fig b{font-family:var(--f-head);font-size:21px;line-height:1.1;font-variant-numeric:tabular-nums}
+.fig em{display:block;font-style:normal;font-size:12px;color:var(--ink-2)}
+.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.checks li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 8px;font-size:13px}
+.pill{font-family:var(--f-head);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:1px 6px;border-radius:3px;align-self:start;margin-top:1px;min-width:52px;text-align:center}
+.pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.info{background:var(--info-soft);color:var(--info)}
+.checks li b{font-weight:700}
+.checks li p{grid-column:2;margin:0;color:var(--ink-2);font-size:12.5px}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:4px 6px;text-align:right;border-bottom:1px solid var(--rule-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+th{font-weight:700;color:var(--ink-2);font-size:11.5px}
+td:first-child,th:first-child{text-align:left;white-space:normal;padding-left:0}
+td.n{font-family:var(--f-mono);font-size:12px}
+tr.sub td{color:var(--ink-2)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px;border:1px solid rgba(0,0,0,.25)}
+ul.asm{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--ink-2)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <div class="side">
+    <aside class="ctrl card" aria-label="Исходные данные">
+      <div class="head">
+        <h1>Участок 31 × 19 м</h1>
+        <p>Вертикальная планировка, отсыпка и дренаж вдоль дороги. Все отметки от уровня автодороги (0,00).</p>
+      </div>
+      <div class="blk">
+        <p class="cap">Этап работ</p>
+        <div class="stages" id="stages"></div>
+        <p class="stage-txt" id="stageTxt"></p>
+        <div class="row-btns">
+          <button class="btn" id="play" type="button">▶ Показать по этапам</button>
+          <button class="btn" id="reset" type="button">Исходные данные</button>
+        </div>
+      </div>
+      <div id="params"></div>
+      <details class="grp" open>
+        <summary>Отображение</summary>
+        <div class="grp-body">
+          <div class="prm">
+            <label for="p-exag">Вертикальный масштаб модели</label>
+            <span class="num"><input type="number" id="p-exagn" min="1" max="6" step="0.5" aria-label="Вертикальный масштаб"><i>×</i></span>
+            <input type="range" id="p-exag" min="1" max="6" step="0.5">
+            <small>Перепады в десятки сантиметров на 31 м почти не видны, поэтому высоты утрированы.</small>
+          </div>
+          <label class="tog"><input type="checkbox" id="t-labels"> Подписи</label>
+          <label class="tog"><input type="checkbox" id="t-surround"> Дорога и соседний грунт</label>
+          <label class="tog"><input type="checkbox" id="t-arrows"> Стрелки стока воды</label>
+          <label class="tog"><input type="checkbox" id="t-cut"> Срезать модель по линии разреза</label>
+        </div>
+      </details>
+    </aside>
+
+    <aside class="res card" aria-label="Расчёт">
+      <div class="head">
+        <h1>Ведомость</h1>
+        <p>Пересчитывается при любом изменении параметров.</p>
+      </div>
+      <div class="blk"><div class="figs" id="figs"></div></div>
+      <div class="blk"><p class="cap">Проверки</p><ul class="checks" id="checks"></ul></div>
+      <div class="blk"><p class="cap">Отметки по углам</p><div class="tbl-wrap" id="levels"></div></div>
+      <div class="blk"><p class="cap">Дренажная канава</p><div class="tbl-wrap" id="ditch"></div></div>
+      <div class="blk"><p class="cap">Объёмы работ и материалов</p><div class="tbl-wrap" id="vols"></div></div>
+      <div class="blk"><p class="cap">Как прочитано задание</p><ul class="asm" id="asm"></ul></div>
+    </aside>
+  </div>
+
+  <main class="main">
+    <div class="view" id="view">
+      <div class="ov tl" role="group" aria-label="Вид">
+        <button class="btn" type="button" data-view="iso">3D</button>
+        <button class="btn" type="button" data-view="plan">План</button>
+        <button class="btn" type="button" data-view="sideC">Со стороны С</button>
+        <button class="btn" type="button" data-view="corner1">Точка 1</button>
+        <button class="btn" type="button" data-view="cut">К разрезу</button>
+      </div>
+      <div class="ov tr"><div class="stage-chip" id="stageChip"></div><button class="btn mob-only" id="compact" type="button" aria-pressed="false" aria-label="Уменьшить окно модели">▴</button></div>
+      <div class="ov bl" id="legend"></div>
+      <div class="hint">Вращение: левая кнопка · сдвиг: правая · масштаб: колесо</div>
+    </div>
+    <section class="sec card" aria-label="Разрез">
+      <div class="sec-head">
+        <h2 id="secTitle">Разрез</h2>
+        <div class="sec-ctl">
+          <div class="seg" role="group" aria-label="Направление разреза">
+            <button type="button" data-axis="x">Поперёк А</button>
+            <button type="button" data-axis="z">Поперёк Б</button>
+          </div>
+          <input type="range" id="secPos" aria-label="Положение линии разреза">
+          <output id="secPosOut"></output>
+          <div class="seg" role="group" aria-label="Охват разреза">
+            <button type="button" data-zoom="all">Весь профиль</button>
+            <button type="button" data-zoom="ditch">Канава</button>
+          </div>
+        </div>
+      </div>
+      <div class="secbox" id="secbox"></div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/renderers/CSS2DRenderer.js"></script>
+<script>
+(() => {
+const T3 = window.THREE;
+const OrbitControls = T3 && T3.OrbitControls, CSS2DRenderer = T3 && T3.CSS2DRenderer, CSS2DObject = T3 && T3.CSS2DObject;
+
+/* ---------- исходные данные ---------- */
+const DEF = {L:31, W:19, drop:0.6, strip:0.1, finish:0, finishMode:'flat', t1:0.2, t2:0.1, t3:0.4,
+  iCA:2, iDB:0, iD:2, gap:1, offset:0.3, depth:1, bw:0.3,
+  exag:3, stage:5, labels:true, surround:true, arrows:true, cut:false, axis:'x', pos:15.5, zoom:'all'};
+const P = {...DEF};
+const CAP = 0.3, ROADW = 6, EXT = 14;
+const K_STONE = 1.3, K_SAND = 1.2, RHO = {g1:1.45, g2:1.40, sand:1.50};
+
+const fmt = (v, d = 2) => { const s = Math.abs(v).toFixed(d).replace('.', ','); return (v < -0.5 * 10 ** -d ? '−' : '') + s; };
+const lvl = v => { const r = Math.round(v * 100) / 100; if (Math.abs(r) < 0.005) return '0,00'; return (r > 0 ? '+' : '−') + Math.abs(r).toFixed(2).replace('.', ','); };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/* ---------- геометрия: все высоты в метрах от уровня дороги ---------- */
+// x — вдоль стороны А (0 у стороны Б, L у стороны D), z — вдоль стороны Б (0 у стороны А, W у стороны С)
+function model(stage = P.stage) {
+  const i1 = P.iCA / 100, i2 = P.iDB / 100, iD = P.iD / 100;
+  const baseHigh = -(P.drop + P.strip);                       // основание в углу 3 (самая высокая точка)
+  const base = (x, z) => baseHigh - i1 * (P.W - z) - i2 * (P.L - x);
+  const top1 = (x, z) => base(x, z) + P.t1;
+  const top2 = (x, z) => top1(x, z) + P.t2;
+  const fin = P.finishMode === 'flat' ? (x, z) => Math.max(P.finish, top2(x, z)) : (x, z) => top2(x, z) + P.t3;
+  const wTop = Math.max(0.1, P.gap - P.offset);
+  const bw = Math.min(P.bw, wTop - 0.04);
+  const e = (wTop - bw) / 2;
+  const corner = -(P.depth + iD * Math.max(P.L, P.W));        // дно у точки 1; в мелком конце глубина = depth
+  const bot = s => corner + iD * Math.max(0, s);
+  const prof = (u, b) => {
+    if (u < 0 || u >= wTop) return 0;
+    if (u < e) return b * (u / e);
+    if (u <= e + bw) return b;
+    return b * (1 - (u - e - bw) / e);
+  };
+  const hGapBuilt = (x, z) => {
+    const hA = x <= P.L ? prof(z + P.gap, bot(Math.max(x, 0))) : 0;
+    const hB = z <= P.W ? prof(x + P.gap, bot(Math.max(z, 0))) : 0;
+    return Math.min(hA, hB);
+  };
+  const hGap = stage >= 2 ? hGapBuilt : () => -P.drop;
+  const plotTop = (x, z) => stage === 0 ? -P.drop : stage <= 2 ? base(x, z) : stage === 3 ? top1(x, z) : stage === 4 ? top2(x, z) : fin(x, z);
+  return {base, top1, top2, fin, hGap, hGapBuilt, bot, corner, wTop, bw, e, plotTop};
+}
+
+function zoneAt(x, z) {
+  const g = P.gap;
+  if (x >= 0 && x <= P.L && z >= 0 && z <= P.W) return 'plot';
+  if (z >= -g && z < 0 && x >= -g && x <= P.L + CAP) return 'strip';
+  if (x >= -g && x < 0 && z >= 0 && z <= P.W + CAP) return 'strip';
+  if (z >= -g - ROADW && z < -g && x >= -g - ROADW && x <= P.L + EXT) return 'road';
+  if (x >= -g - ROADW && x < -g && z >= -g && z <= P.W + EXT) return 'road';
+  return 'out';
+}
+function column(x, z, M, deep) {
+  const out = []; const B = (n, a, b) => { if (b > a + 1e-6) out.push([n, a, b]); };
+  const st = P.stage, nat = -P.drop, ts = -P.drop - P.strip;
+  switch (zoneAt(x, z)) {
+    case 'road': B('soil', deep, nat); B('roadbed', nat, -0.12); B('road', Math.max(nat, -0.12), 0); break;
+    case 'strip': { const h = M.hGap(x, z); B('soil', deep, Math.min(h, nat)); B('fill', nat, h); break; }
+    case 'plot': {
+      if (st === 0) { B('soil', deep, ts); B('topsoil', ts, nat); }
+      else {
+        const b = M.base(x, z); B('soil', deep, b);
+        if (st >= 3) B('g1', b, M.top1(x, z));
+        if (st >= 4) B('g2', M.top1(x, z), M.top2(x, z));
+        if (st >= 5) B('sand', M.top2(x, z), M.fin(x, z));
+      }
+      break;
+    }
+    default: B('soil', deep, ts); B('topsoil', ts, nat);
+  }
+  return out;
+}
+
+/* ---------- расчёт объёмов и проверок ---------- */
+function stats() {
+  const M = model(5);
+  const S = P.L * P.W;
+  const nX = 62, nZ = 38, dA = S / (nX * nZ);
+  let vStrip = 0, vSand = 0;
+  for (let i = 0; i < nX; i++) for (let j = 0; j < nZ; j++) {
+    const x = (i + 0.5) * P.L / nX, z = (j + 0.5) * P.W / nZ;
+    vStrip += Math.max(0, -P.drop - M.base(x, z)) * dA;
+    vSand += Math.max(0, M.fin(x, z) - M.top2(x, z)) * dA;
+  }
+  const C = [[0, 0], [0, P.W], [P.L, P.W], [P.L, 0]];   // углы 1..4
+  const sandAt = C.map(([x, z]) => M.fin(x, z) - M.top2(x, z));
+  const vTop = S * P.strip, vExtra = Math.max(0, vStrip - vTop);
+  const v1 = S * P.t1, v2 = S * P.t2;
+  // канавы: численное интегрирование по полосе между дорогой и участком
+  let cap = 0, exc = 0, bank = 0; const dx = 0.1, du = 0.02;
+  const strip = (x0, x1, z0, z1) => {
+    for (let x = x0 + dx / 2; x < x1; x += dx) for (let z = z0 + du / 2; z < z1; z += du) {
+      const h = M.hGapBuilt(x, z);
+      cap += Math.max(0, -h) * dx * du; exc += Math.max(0, -P.drop - h) * dx * du; bank += Math.max(0, h + P.drop) * dx * du;
+    }
+  };
+  // шаги по x и z разные, поэтому полосу Б считаем с переставленными шагами
+  for (let x = -P.gap + du / 2; x < 0; x += du) for (let z = dx / 2; z < P.W; z += dx) {
+    const h = M.hGapBuilt(x, z);
+    cap += Math.max(0, -h) * dx * du; exc += Math.max(0, -P.drop - h) * dx * du; bank += Math.max(0, h + P.drop) * dx * du;
+  }
+  strip(-P.gap, P.L, -P.gap, 0);
+  // зазор дна канавы и низа щебня у края участка
+  let minClr = 1e9, where = '';
+  for (let x = 0; x <= P.L + 1e-9; x += 0.1) { const c = M.base(x, 0) - M.bot(x); if (c < minClr) { minClr = c; where = `сторона А, ${fmt(x, 1)} м от угла 1`; } }
+  for (let z = 0; z <= P.W + 1e-9; z += 0.1) { const c = M.base(0, z) - M.bot(z); if (c < minClr) { minClr = c; where = `сторона Б, ${fmt(z, 1)} м от угла 1`; } }
+  const len = (P.L + P.gap - M.wTop / 2) + (P.W + P.gap - M.wTop / 2);
+  return {M, S, C, sandAt, vTop, vExtra, v1, v2, vSand, cap, exc, bank, minClr, where, len,
+    dMin: P.depth, dMax: -M.corner, dB: -(M.bot(P.W))};
+}
+
+/* ---------- three.js ---------- */
+// 3D запускается отдельно: если WebGL или библиотека недоступны, разрез и ведомость всё равно работают
+const view = document.getElementById('view');
+const coarse = matchMedia('(max-width: 820px), (pointer: coarse)').matches;
+let has3D = false, renderer, labelR, scene, camera, controls, sun, MAT, paint, edgeMat, stakeMat, lowMat, clipPlane, world, marks;
+
+function applyTheme() {
+  if (!scene) return;
+  const c = getComputedStyle(document.documentElement).getPropertyValue('--scene').trim() || '#dce3df';
+  scene.background = new THREE.Color(c);
+  scene.fog = new THREE.Fog(c, 75, 200);
+}
+
+/* текстуры материалов (процедурные) */
+let seed = 11;
+const rnd = () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const rgb = h => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+const shade = (h, v) => { const f = x => clamp(Math.round(x + v * 255), 0, 255); const [r, g, b] = rgb(h); return `rgb(${f(r)},${f(g)},${f(b)})`; };
+function canvasTex(size, draw, meters) {
+  const c = document.createElement('canvas'); c.width = c.height = size; draw(c.getContext('2d'), size);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.encoding = THREE.sRGBEncoding;
+  t.repeat.set(1 / meters, 1 / meters); t.anisotropy = 4; return t;
+}
+const grain = (base, amp, n, sz = 2) => (g, s) => {
+  g.fillStyle = base; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < n; i++) { g.fillStyle = shade(base, (rnd() - 0.5) * amp); const w = 1 + rnd() * sz; g.fillRect(rnd() * s, rnd() * s, w, w); }
+};
+const stones = (base, n, r0, r1) => (g, s) => {
+  g.fillStyle = shade(base, -0.2); g.fillRect(0, 0, s, s);
+  for (let i = 0; i < n; i++) {
+    const x = rnd() * s, y = rnd() * s, r = r0 + rnd() * (r1 - r0), a = rnd() * Math.PI, k = 0.6 + rnd() * 0.4;
+    g.fillStyle = shade(base, (rnd() - 0.5) * 0.3);
+    for (const ox of [-s, 0, s]) for (const oy of [-s, 0, s]) { g.beginPath(); g.ellipse(x + ox, y + oy, r, r * k, a, 0, Math.PI * 2); g.fill(); }
+  }
+};
+const LG = {soil: ['Грунт', '#7b5b3e'], topsoil: ['Плодородный слой', '#4c3a26'], g1: ['Щебень 40×70', '#86898c'],
+  g2: ['Щебень 20×40', '#aeb1b4'], sand: ['Песок', '#d6bb80'], ditch: ['Канава, берма', '#86664a']};
+
+function init3D() {
+  if (!window.THREE || !OrbitControls || !CSS2DRenderer) throw new Error('three.js не загрузилась');
+  if (THREE.ColorManagement && 'legacyMode' in THREE.ColorManagement) THREE.ColorManagement.legacyMode = false;
+  renderer = new THREE.WebGLRenderer({antialias: true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.75 : 2));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding; renderer.physicallyCorrectLights = true;
+  view.prepend(renderer.domElement);
+  labelR = new CSS2DRenderer();
+  Object.assign(labelR.domElement.style, {position: 'absolute', top: '0', left: '0', pointerEvents: 'none', zIndex: 2});
+  view.appendChild(labelR.domElement);
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(38, 1, 0.1, 900);
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.maxPolarAngle = Math.PI / 2 - 0.02; controls.minDistance = 2; controls.maxDistance = 180;
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x6b5a45, 1.15));
+  sun = new THREE.DirectionalLight(0xffffff, 2.1);
+  sun.castShadow = true; sun.shadow.mapSize.set(coarse ? 1024 : 2048, coarse ? 1024 : 2048);
+  Object.assign(sun.shadow.camera, {left: -50, right: 50, top: 50, bottom: -50, near: 1, far: 200});
+  sun.shadow.bias = -0.0004;
+  scene.add(sun, sun.target);
+  applyTheme();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  new MutationObserver(applyTheme).observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
+
+  const mk = map => new THREE.MeshStandardMaterial({map, roughness: 0.95, metalness: 0, side: THREE.DoubleSide});
+  MAT = {
+    soil: mk(canvasTex(256, grain('#7b5b3e', 0.22, 9000), 2.5)),
+    topsoil: mk(canvasTex(256, grain('#4c3a26', 0.2, 9000), 2)),
+    g1: mk(canvasTex(512, stones('#8a8d90', 900, 7, 13), 1.4)),
+    g2: mk(canvasTex(512, stones('#b0b3b6', 2400, 3.5, 7), 1)),
+    sand: mk(canvasTex(256, grain('#d6bb80', 0.12, 14000, 1.5), 1)),
+    road: mk(canvasTex(256, grain('#3b3e42', 0.12, 12000, 1.5), 3)),
+    roadbed: mk(canvasTex(256, grain('#9a8a74', 0.18, 8000), 2)),
+    ditch: mk(canvasTex(256, grain('#86664a', 0.2, 9000), 1.5)),
+    grass: mk(canvasTex(256, grain('#7f9662', 0.18, 12000), 5)),
+  };
+  paint = new THREE.MeshBasicMaterial({color: 0xeeeeee});
+  edgeMat = new THREE.LineBasicMaterial({color: 0x1b282d, transparent: true, opacity: 0.3});
+  stakeMat = new THREE.MeshStandardMaterial({color: 0xc2410c, roughness: 0.6});
+  lowMat = new THREE.MeshStandardMaterial({color: 0x1f5f9c, roughness: 0.4, emissive: 0x0b2440});
+  clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
+  world = new THREE.Group(); marks = new THREE.Group();
+  scene.add(world, marks);
+
+  has3D = true;
+  new ResizeObserver(resize).observe(view);
+  renderer.setAnimationLoop(now => {
+    if (tw) {
+      const k = Math.min(1, (now - tw.t0) / 750), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.q0, tw.q1, e);
+      if (k >= 1) tw = null;
+    }
+    controls.update(); renderer.render(scene, camera); labelR.render(scene, camera);
+  });
+}
+
+function addGrid(G, nu, nv, f, flip) {
+  const b0 = G.pos.length / 3;
+  for (let i = 0; i <= nu; i++) for (let j = 0; j <= nv; j++) { const p = f(i / nu, j / nv); G.pos.push(p[0], p[1], p[2]); G.uv.push(p[3], p[4]); }
+  const id = (i, j) => b0 + i * (nv + 1) + j;
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const a = id(i, j), b = id(i, j + 1), c = id(i + 1, j), d = id(i + 1, j + 1);
+    if (!flip) G.idx.push(a, b, c, b, d, c); else G.idx.push(a, c, b, b, c, d);
+  }
+}
+const lerp = (a, b, t) => a + (b - a) * t;
+// тело между двумя поверхностями над прямоугольником
+function slab(x0, x1, z0, z1, bot, top, nx, nz, mat, edges = true) {
+  const G = {pos: [], uv: [], idx: []};
+  addGrid(G, nx, nz, (u, v) => { const x = lerp(x0, x1, u), z = lerp(z0, z1, v); return [x, top(x, z), z, x, z]; }, false);
+  addGrid(G, nx, nz, (u, v) => { const x = lerp(x0, x1, u), z = lerp(z0, z1, v); return [x, bot(x, z), z, x, z]; }, true);
+  const side = (fixed, n, along, flip) => addGrid(G, n, 1, (u, v) => {
+    const p = along(u); const y = lerp(bot(p[0], p[1]), top(p[0], p[1]), v); return [p[0], y, p[1], fixed ? p[1] : p[0], y];
+  }, flip);
+  side(true, nz, u => [x0, lerp(z0, z1, u)], true);
+  side(true, nz, u => [x1, lerp(z0, z1, u)], false);
+  side(false, nx, u => [lerp(x0, x1, u), z0], false);
+  side(false, nx, u => [lerp(x0, x1, u), z1], true);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(G.pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(G.uv, 2));
+  g.setIndex(G.idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat); m.castShadow = m.receiveShadow = true; world.add(m);
+  if (edges) world.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 25), edgeMat));
+  return m;
+}
+const flat = v => () => v;
+
+function clearGroup(g) {
+  for (let i = g.children.length - 1; i >= 0; i--) {
+    const o = g.children[i];
+    o.traverse(c => { if (c.geometry) c.geometry.dispose(); });
+    g.remove(o);
+  }
+}
+function visible(x, z) {
+  if (!P.cut) return true;
+  return P.axis === 'x' ? x <= P.pos + 0.01 : z <= P.pos + 0.01;
+}
+function label(html, cls, x, y, z, force) {
+  if (!P.labels && !force) return;
+  if (!visible(x, z)) return;
+  const d = document.createElement('div'); d.className = 'lbl ' + (cls || ''); d.innerHTML = html;
+  const o = new CSS2DObject(d); o.position.set(x, y, z); marks.add(o);
+}
+function arrow(dir, x, y, z, len, color) {
+  if (!visible(x, z)) return;
+  marks.add(new THREE.ArrowHelper(dir, new THREE.Vector3(x, y, z), len, color, len * 0.38, len * 0.22));
+}
+
+function rebuild() {
+  if (!has3D) { renderLegend(); return; }
+  clearGroup(world); clearGroup(marks);
+  const M = model(); const ex = P.exag, st = P.stage, g = P.gap;
+  world.scale.y = ex;
+  const deep = Math.min(M.corner, M.base(0, 0)) - 0.9;
+  renderer.clippingPlanes = [];
+  if (P.cut) {
+    clipPlane.normal.set(P.axis === 'x' ? -1 : 0, 0, P.axis === 'z' ? -1 : 0); clipPlane.constant = P.pos;
+    renderer.clippingPlanes = [clipPlane];
+  }
+  // участок
+  const soilTop = st === 0 ? flat(-P.drop - P.strip) : M.base;
+  slab(0, P.L, 0, P.W, flat(deep), soilTop, 12, 8, MAT.soil);
+  if (st === 0) slab(0, P.L, 0, P.W, flat(-P.drop - P.strip), flat(-P.drop), 12, 8, MAT.topsoil);
+  if (st >= 3) slab(0, P.L, 0, P.W, M.base, M.top1, 12, 8, MAT.g1);
+  if (st >= 4) slab(0, P.L, 0, P.W, M.top1, M.top2, 12, 8, MAT.g2);
+  if (st >= 5) slab(0, P.L, 0, P.W, M.top2, M.fin, 24, 16, MAT.sand);
+  // полоса между дорогой и участком: канава + берма
+  const nA = Math.ceil((P.L + CAP + g) / 0.2), nL = Math.max(24, Math.round(g / 0.025));
+  slab(-g, P.L + CAP, -g, 0, flat(deep), M.hGap, nA, nL, MAT.ditch);
+  slab(-g, 0, 0, P.W + CAP, flat(deep), M.hGap, nL, Math.ceil((P.W + CAP) / 0.2), MAT.ditch);
+
+  if (P.surround) {
+    const r0 = -g - ROADW;
+    slab(r0, P.L + EXT, r0, -g, flat(-P.drop), flat(-0.12), 4, 2, MAT.roadbed);
+    slab(r0, P.L + EXT, r0, -g, flat(-0.12), flat(0), 4, 2, MAT.road);
+    slab(r0, -g, -g, P.W + EXT, flat(-P.drop), flat(-0.12), 2, 4, MAT.roadbed);
+    slab(r0, -g, -g, P.W + EXT, flat(-0.12), flat(0), 2, 4, MAT.road);
+    // разметка
+    const stripe = (x0, x1, z0, z1) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), paint); m.rotation.x = -Math.PI / 2; m.position.set((x0 + x1) / 2, 0.004, (z0 + z1) / 2); world.add(m); };
+    const zc = -g - ROADW / 2, xc = -g - ROADW / 2;
+    for (let x = xc + 4; x < P.L + EXT - 2; x += 6) stripe(x, x + 3, zc - 0.06, zc + 0.06);
+    for (let z = zc + 4; z < P.W + EXT - 2; z += 6) stripe(xc - 0.06, xc + 0.06, z, z + 3);
+    stripe(r0 + 0.3, P.L + EXT, -g - 0.42, -g - 0.3); stripe(-g - 0.42, -g - 0.3, -g - 0.3, P.W + EXT);
+    // естественный грунт вокруг, с вырезом под участок и канавы
+    const sh = new THREE.Shape();
+    sh.moveTo(-70, 70); sh.lineTo(P.L + 70, 70); sh.lineTo(P.L + 70, -(P.W + 70)); sh.lineTo(-70, -(P.W + 70)); sh.lineTo(-70, 70);
+    const hole = new THREE.Path();
+    [[-g, -g], [P.L + CAP, -g], [P.L + CAP, 0], [P.L, 0], [P.L, P.W], [0, P.W], [0, P.W + CAP], [-g, P.W + CAP]]
+      .forEach(([x, z], i) => i ? hole.lineTo(x, -z) : hole.moveTo(x, -z));
+    hole.closePath(); sh.holes.push(hole);
+    const gm = new THREE.Mesh(new THREE.ShapeGeometry(sh), MAT.grass);
+    gm.rotation.x = -Math.PI / 2; gm.position.y = -P.drop - 0.003; gm.receiveShadow = true; world.add(gm);
+    label('Автодорога', 'road', P.L * 0.55, 0.3, -g - ROADW / 2);
+    label('Автодорога', 'road', -g - ROADW / 2, 0.3, P.W * 0.55);
+  }
+
+  // граница участка
+  const pts = [[0, 0], [0, P.W], [P.L, P.W], [P.L, 0], [0, 0]].map(([x, z]) => new THREE.Vector3(x, M.plotTop(x, z) + 0.02, z));
+  const bl = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({color: 0xc2410c, dashSize: 0.6, gapSize: 0.35}));
+  bl.computeLineDistances(); world.add(bl);
+
+  // межевые знаки и подписи
+  [[0, 0], [0, P.W], [P.L, P.W], [P.L, 0]].forEach(([x, z], i) => {
+    const y = M.plotTop(x, z) * ex;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.6, 10), stakeMat);
+    post.position.set(x, y + 0.8, z); post.castShadow = true;
+    if (visible(x, z)) marks.add(post);
+    label(String(i + 1), 'corner', x, y + 2.0, z, true);
+  });
+  const yt = (x, z) => M.plotTop(x, z) * ex + 0.12;
+  label(`А · ${fmt(P.L, 1).replace(',0', '')} м`, 'edge', P.L / 2, yt(P.L / 2, 1.2), 1.2);
+  label(`Б · ${fmt(P.W, 1).replace(',0', '')} м`, 'edge', 1.6, yt(1.6, P.W / 2), P.W / 2);
+  label(`С · ${fmt(P.L, 1).replace(',0', '')} м`, 'edge', P.L / 2, yt(P.L / 2, P.W - 1.2), P.W - 1.2);
+  label(`D · ${fmt(P.W, 1).replace(',0', '')} м`, 'edge', P.L - 1.6, yt(P.L - 1.6, P.W / 2), P.W / 2);
+
+  const flowCol = 0x2f86d6;
+  if (st >= 2) {
+    const zc = -g + M.wTop / 2;
+    const yLow = M.corner * ex;
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.22, 18, 12), lowMat);
+    s.position.set(zc, yLow + 0.22, zc); if (visible(zc, zc)) marks.add(s);
+    label(`Т.1 · дно ${lvl(M.corner)}`, 'low', zc, yLow + 0.9, zc, true);
+    label('Дренажная канава', 'muted', P.L * 0.72, 0.5, zc);
+    if (P.arrows) {
+      for (let x = P.L - 1.2; x > 0.8; x -= 3) arrow(new THREE.Vector3(-1, 0, 0), x, M.bot(x) * ex + 0.08, zc, 1.8, flowCol);
+      for (let z = P.W - 1.2; z > 0.8; z -= 3) arrow(new THREE.Vector3(0, 0, -1), zc, M.bot(z) * ex + 0.08, z, 1.8, flowCol);
+    }
+  }
+  if ((st === 1 || st === 2) && P.arrows) {
+    for (const fx of [0.25, 0.5, 0.75]) for (const fz of [0.4, 0.75]) {
+      const x = P.L * fx, z = P.W * fz; arrow(new THREE.Vector3(0, 0, -1), x, M.base(x, z) * ex + 0.06, z, 2.6, 0xc2410c);
+    }
+    label(`уклон ${fmt(P.iCA, 1)} см/м → к стороне А`, '', P.L / 2, M.base(P.L / 2, P.W * 0.58) * ex + 0.4, P.W * 0.58);
+  }
+  sun.position.set(P.L / 2 + 22, 42, P.W / 2 + 14); sun.target.position.set(P.L / 2, 0, P.W / 2);
+  renderLegend();
+}
+
+function renderLegend() {
+  const st = P.stage, keys = [];
+  if (st === 0) keys.push('topsoil');
+  if (st >= 5) keys.push('sand'); if (st >= 4) keys.push('g2'); if (st >= 3) keys.push('g1');
+  keys.push('soil', 'ditch');
+  document.getElementById('legend').innerHTML = keys.map(k => `<span class="lg"><i style="background:${LG[k][1]}"></i>${LG[k][0]}</span>`).join('');
+}
+
+/* ---------- камера ---------- */
+const VIEWS = {
+  iso: () => ({p: [P.L + 16, 24, P.W + 24], t: [P.L / 2, -P.exag * 0.3, P.W / 2]}),
+  plan: () => ({p: [P.L / 2 - 3, Math.max(P.L, P.W) * 1.9, P.W / 2 - 3 + 0.01], t: [P.L / 2 - 3, 0, P.W / 2 - 3]}),
+  sideC: () => ({p: [P.L / 2, 3, P.W + 36], t: [P.L / 2, -0.6, P.W / 2]}),
+  corner1: () => ({p: [8, 6.5, 10], t: [-0.6, -P.exag * 0.6, -0.6]}),
+  cut: () => P.axis === 'x'
+    ? {p: [P.pos + 20, 3.5, P.W / 2 + 2], t: [P.pos, -P.exag * 0.3, P.W / 2 - 3]}
+    : {p: [P.L / 2 + 2, 3.5, P.pos + 20], t: [P.L / 2 - 4, -P.exag * 0.3, P.pos]},
+};
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let tw = null;
+function goView(name, instant) {
+  if (!has3D) return;
+  const v = VIEWS[name]();
+  const p1 = new THREE.Vector3(...v.p), q1 = new THREE.Vector3(...v.t);
+  // узкий вертикальный экран: отодвигаем камеру, чтобы участок помещался по ширине
+  const f = Math.max(1, 1.3 / (camera.aspect || 1));
+  p1.sub(q1).multiplyScalar(f).add(q1);
+  if (instant || reduce) { camera.position.copy(p1); controls.target.copy(q1); controls.update(); return; }
+  tw = {t0: performance.now(), p0: camera.position.clone(), q0: controls.target.clone(), p1, q1};
+}
+document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => {
+  if (b.dataset.view === 'cut' && !P.cut) { P.cut = true; document.getElementById('t-cut').checked = true; update(); }
+  goView(b.dataset.view);
+}));
+
+const compactBtn = document.getElementById('compact');
+compactBtn.addEventListener('click', () => {
+  const on = view.classList.toggle('compact');
+  compactBtn.textContent = on ? '▾' : '▴';
+  compactBtn.setAttribute('aria-pressed', String(on));
+  compactBtn.setAttribute('aria-label', on ? 'Увеличить окно модели' : 'Уменьшить окно модели');
+});
+
+function resize() {
+  if (!has3D) return;
+  const w = view.clientWidth, h = view.clientHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h); labelR.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+
+/* ---------- разрез (SVG) ---------- */
+const secbox = document.getElementById('secbox');
+const NAMES = {g1: 'Щебень 40×70', g2: 'Щебень 20×40', sand: 'Песок', topsoil: 'Плодородный слой'};
+function drawSection() {
+  const w = secbox.clientWidth, h = secbox.clientHeight; if (w < 60 || h < 60) return;
+  const M = model(); const ax = P.axis === 'x';
+  const len = ax ? P.W : P.L;
+  const zoomD = P.zoom === 'ditch';
+  const [t0, t1] = zoomD ? [-P.gap - 2.2, 2.6] : [-P.gap - ROADW - 1, len + 2];
+  const pt = t => ax ? [P.pos, t] : [t, P.pos];
+  const yTop = 0.45, yBot = Math.min(M.corner, M.base(0, 0)) - 0.35;
+  const ml = 50, mr = 12, mt = 20, mb = 22;
+  const kx = (w - ml - mr) / (t1 - t0), ky = (h - mt - mb) / (yTop - yBot);
+  const X = t => ml + (t - t0) * kx, Y = y => mt + (yTop - y) * ky;
+  const N = clamp(Math.round((w - ml - mr) / 1.2), 240, 1100), dt = (t1 - t0) / N;
+  const cols = [];
+  for (let i = 0; i <= N; i++) { const t = t0 + dt * i; const [x, z] = pt(t); cols.push({t, b: column(x, z, M, yBot)}); }
+  let s = '';
+  // полосы материалов (ступенчатые полигоны без щелей)
+  for (const n of ['soil', 'topsoil', 'roadbed', 'road', 'fill', 'g1', 'g2', 'sand']) {
+    let run = [];
+    const flush = () => {
+      if (run.length) {
+        const top = [], bot = [];
+        for (const r of run) { const xa = X(r.t - dt / 2).toFixed(1), xb = X(r.t + dt / 2).toFixed(1); top.push(`${xa},${Y(r.to).toFixed(1)}`, `${xb},${Y(r.to).toFixed(1)}`); bot.push(`${xa},${Y(r.from).toFixed(1)}`, `${xb},${Y(r.from).toFixed(1)}`); }
+        s += `<polygon class="b-${n}" points="${top.concat(bot.reverse()).join(' ')}"/>`;
+      }
+      run = [];
+    };
+    for (const c of cols) { const f = c.b.find(q => q[0] === n); if (f) run.push({t: c.t, from: f[1], to: f[2]}); else flush(); }
+    flush();
+  }
+  s += `<polyline class="surf" points="${cols.map(c => `${X(c.t).toFixed(1)},${Y(c.b.length ? c.b[c.b.length - 1][2] : yBot).toFixed(1)}`).join(' ')}"/>`;
+  // сетка высот
+  for (let y = Math.ceil(yBot * 2) / 2; y <= yTop + 1e-9; y += 0.5) {
+    s += `<line class="grid" x1="${ml}" x2="${w - mr}" y1="${Y(y)}" y2="${Y(y)}"/><text class="ax" x="${ml - 6}" y="${Y(y) + 3.5}" text-anchor="end">${lvl(y)}</text>`;
+  }
+  const step = zoomD ? 0.5 : 5;
+  for (let t = Math.ceil(t0 / step) * step; t <= t1 + 1e-9; t += step) {
+    s += `<line class="grid" x1="${X(t)}" x2="${X(t)}" y1="${h - mb}" y2="${h - mb + 4}"/><text class="ax" x="${X(t)}" y="${h - 6}" text-anchor="middle">${fmt(t, zoomD ? 1 : 0)}</text>`;
+  }
+  s += `<line class="ref0" x1="${ml}" x2="${w - mr}" y1="${Y(0)}" y2="${Y(0)}"/>`;
+  s += `<line class="refn" x1="${ml}" x2="${w - mr}" y1="${Y(-P.drop)}" y2="${Y(-P.drop)}"/>`;
+  s += `<text class="txa" x="${ml + 4}" y="${Y(0) - 5}" text-anchor="start">дорога 0,00</text>`;
+  s += `<text class="tx" x="${w - mr - 4}" y="${Y(-P.drop) - 4}" text-anchor="end" style="fill:var(--ink-2)">естеств. ${lvl(-P.drop)}</text>`;
+  // границы
+  for (const [t, txt] of [[0, 'граница участка'], [-P.gap, 'край дороги']]) {
+    s += `<line class="vline" x1="${X(t)}" x2="${X(t)}" y1="${mt}" y2="${h - mb}"/>`;
+    if (zoomD) s += `<text class="ax" x="${X(t) + (t === 0 ? 4 : -4)}" y="${mt - 6}" text-anchor="${t === 0 ? 'start' : 'end'}">${txt}</text>`;
+  }
+  const lowZone = zoneAt(...pt(-P.gap + M.wTop / 2)) === 'strip';
+  if (zoomD) {
+    const yd = Y(0.3);
+    const dim = (a, b, txt) => `<line class="dim" x1="${X(a)}" x2="${X(b)}" y1="${yd}" y2="${yd}"/><line class="dim" x1="${X(a)}" x2="${X(a)}" y1="${yd - 4}" y2="${yd + 4}"/><line class="dim" x1="${X(b)}" x2="${X(b)}" y1="${yd - 4}" y2="${yd + 4}"/><text class="tx" x="${(X(a) + X(b)) / 2}" y="${yd - 4}" text-anchor="middle">${txt}</text>`;
+    s += dim(-P.gap, -P.gap + M.wTop, `канава ${fmt(M.wTop)}`) + dim(-P.gap + M.wTop, 0, fmt(P.gap - M.wTop));
+  } else {
+    s += `<text class="ax" x="${X(-P.gap - ROADW / 2)}" y="${mt - 6}" text-anchor="middle">автодорога</text>`;
+    s += `<text class="ax" x="${X(len / 2)}" y="${mt - 6}" text-anchor="middle">участок · сторона ${ax ? 'А' : 'Б'} → сторона ${ax ? 'С' : 'D'}</text>`;
+  }
+  // отметки
+  const mark = (t, y, txt, anchor = 'start', cls = 'tx') => {
+    const x = X(t), yy = Y(y);
+    s += `<path class="mk" d="M${x - 4},${yy - 6} L${x + 4},${yy - 6} L${x},${yy} Z"/><text class="${cls}" x="${x + (anchor === 'start' ? 6 : anchor === 'end' ? -6 : 0)}" y="${yy - 8}" text-anchor="${anchor}">${txt}</text>`;
+  };
+  if (P.stage >= 2 && lowZone) {
+    const tc = -P.gap + M.wTop / 2; const [x, z] = pt(tc); const hb = M.hGap(x, z);
+    if (hb < -0.01) mark(tc, hb, `дно ${lvl(hb)}`, 'start', 'txa');
+  }
+  const inPlot = ax ? P.pos >= 0 && P.pos <= P.L : P.pos >= 0 && P.pos <= P.W;
+  if (inPlot) {
+    const edgeT = [0.35]; if (!zoomD) edgeT.push(len - 0.35);
+    for (const t of edgeT) {
+      const [x, z] = pt(t); const top = M.plotTop(x, z), b = M.base(x, z);
+      const anc = t > len / 2 ? 'end' : 'start';
+      mark(t, top, lvl(top), anc);
+      if (P.stage >= 1 && top - b > 0.05) s += `<text class="tx" x="${X(t) + (anc === 'start' ? 6 : -6)}" y="${Y(b) + 13}" text-anchor="${anc}">низ ${lvl(b)}</text>`;
+    }
+    const tm = zoomD ? Math.min(1.5, len / 2) : len / 2; const [x, z] = pt(tm);
+    for (const [n, a, b] of column(x, z, M, yBot)) {
+      if (!NAMES[n]) continue;
+      const hp = (b - a) * ky; if (hp < 12) continue;
+      s += `<text class="inb" x="${X(tm)}" y="${(Y(a) + Y(b)) / 2 + 4}" text-anchor="middle">${NAMES[n]} · ${fmt(b - a)} м</text>`;
+    }
+  }
+  secbox.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Разрез участка">${s}</svg>`;
+  const ratio = ky / kx;
+  document.getElementById('secTitle').innerHTML = (ax
+    ? `Разрез 1–1 · ${fmt(P.pos, 1)} м от стороны Б`
+    : `Разрез 2–2 · ${fmt(P.pos, 1)} м от стороны А`) + `<span>верт. масштаб ×${ratio >= 1.5 ? Math.round(ratio) : fmt(ratio, 1)}</span>`;
+}
+new ResizeObserver(() => drawSection()).observe(secbox);
+
+/* ---------- ведомость ---------- */
+function renderResults() {
+  const R = stats(), M = R.M;
+  const sot = R.S / 100;
+  const raise = P.finishMode === 'flat' ? Math.max(P.finish, M.top2(P.L, P.W)) - M.base(P.L, P.W) : P.t1 + P.t2 + P.t3;
+  document.getElementById('figs').innerHTML = [
+    ['Площадь', `${fmt(R.S, 0)} м²`, `${fmt(sot, 2)} сотки`],
+    ['Отсыпка на стороне С', `${fmt(raise)} м`, `${fmt(P.drop)} + ${fmt(P.strip)} снятого слоя`],
+    ['Перепад основания', `${fmt(P.iCA / 100 * P.W)} м`, `от С к А, ${fmt(P.iCA, 1)} см/м`],
+    ['Нижняя точка', lvl(M.corner), 'дно канавы у угла 1'],
+  ].map(([a, b, c]) => `<div class="fig"><span>${a}</span><b>${b}</b><em>${c}</em></div>`).join('');
+
+  const ch = [];
+  if (Math.abs(R.S - 600) > 0.5) ch.push(['info', `${fmt(P.L, 1)} × ${fmt(P.W, 1)} = ${fmt(R.S, 0)} м², а не 600 м²`,
+    `Разница ${fmt(Math.abs(600 - R.S), 0)} м². Для ровно 6 соток при стороне Б = ${fmt(P.W, 1)} м сторона А должна быть ${fmt(600 / P.W, 2)} м.`]);
+  else ch.push(['ok', 'Площадь 600 м²', 'Размеры сторон дают ровно 6 соток.']);
+  const sMin = Math.min(...R.sandAt), sMax = Math.max(...R.sandAt);
+  if (sMin < -0.005) ch.push(['warn', 'Щебень выходит выше финишной отметки', `Не хватает ${fmt(-sMin)} м: поднимите финиш или уменьшите уклон основания.`]);
+  else if (P.finishMode === 'flat') ch.push(['info', `Песок от ${fmt(sMin)} до ${fmt(sMax)} м`,
+    `Основание идёт с уклоном, а верх ровный, поэтому у стороны А слой песка толще. Песок ${fmt(sMin)} м получается только у стороны С.`]);
+  else ch.push(['info', 'Верх участка идёт с уклоном основания', `У стороны А финиш ${lvl(M.fin(0, 0))}, то есть ниже дороги на ${fmt(-M.fin(0, 0))} м.`]);
+  if (R.minClr < 0.1) {
+    const need = P.depth + (0.1 - R.minClr);
+    ch.push(['warn', R.minClr < 0 ? 'Дно канавы выше низа щебня' : 'Мало запаса между низом щебня и дном канавы',
+      `Худшее место: ${R.where}, разница ${fmt(R.minClr)} м. Вода из щебня должна стекать в канаву, поэтому дно ниже низа щебня хотя бы на 0,10 м. Нужна глубина в мелком конце ≥ ${fmt(Math.ceil(need * 20) / 20)} м.`]);
+  } else ch.push(['ok', 'Дно канавы ниже низа щебня', `Минимальный запас ${fmt(R.minClr)} м (${R.where}).`]);
+  const mMin = M.e / R.dMax, mMax = M.e / R.dMin;
+  if (mMax < 1) ch.push(['warn', `Откосы канавы 1:${fmt(mMin)}…1:${fmt(mMax)}`,
+    `Это почти вертикальные стенки: для суглинка нужно не круче 1:1, для песка 1:1,5. В полосе ${fmt(M.wTop)} м пологие откосы не помещаются, поэтому стенки нужно крепить: геотекстиль + щебень, габионы или ж/б лоток.`]);
+  else ch.push(['ok', `Откосы канавы 1:${fmt(mMin)}…1:${fmt(mMax)}`, 'Не круче 1:1.']);
+  ch.push(['ok', `Самая низкая точка у угла 1 (${lvl(M.corner)})`, `Обе канавы идут к ней с уклоном ${fmt(P.iD, 1)} см/м.`]);
+  if (P.iDB <= 0) ch.push(['info', 'Основание: вся сторона А на одной отметке', 'Если нужно, чтобы и основание понижалось к углу 1, задайте уклон «от D к Б».']);
+  ch.push(['info', 'Куда уходит вода из точки 1', 'В задании не указано. Нужен колодец, труба под дорогой или выпуск в кювет дороги.']);
+  document.getElementById('checks').innerHTML = ch.map(([k, t, d]) => `<li><span class="pill ${k}">${k === 'ok' ? 'норма' : k === 'warn' ? 'внимание' : 'инфо'}</span><b>${t}</b><p>${d}</p></li>`).join('');
+
+  document.getElementById('levels').innerHTML = `<table><thead><tr><th>Угол</th><th>Естеств.</th><th>Низ щебня</th><th>Верх</th><th>Песок</th></tr></thead><tbody>${
+    R.C.map(([x, z], i) => `<tr><td>${i + 1}</td><td class="n">${lvl(-P.drop)}</td><td class="n">${lvl(M.base(x, z))}</td><td class="n">${lvl(M.fin(x, z))}</td><td class="n">${fmt(M.fin(x, z) - M.top2(x, z))}</td></tr>`).join('')
+  }</tbody></table>`;
+
+  document.getElementById('ditch').innerHTML = `<table><tbody>
+    <tr><td>Длина по оси (А + Б)</td><td class="n">${fmt(R.len, 1)} м</td></tr>
+    <tr><td>Ширина по верху / по дну</td><td class="n">${fmt(M.wTop)} / ${fmt(M.bw)} м</td></tr>
+    <tr><td>Отступ от границы участка</td><td class="n">${fmt(P.gap - M.wTop)} м</td></tr>
+    <tr><td>Глубина: у угла 4 / у угла 2</td><td class="n">${fmt(R.dMin)} / ${fmt(R.dB)} м</td></tr>
+    <tr><td>Глубина у точки 1</td><td class="n">${fmt(R.dMax)} м</td></tr>
+    <tr><td>Ёмкость канав</td><td class="n">${fmt(R.cap, 1)} м³</td></tr>
+  </tbody></table>`;
+
+  const row = (sw, name, v, k, rho) => {
+    const order = k ? v * k : null;
+    return `<tr><td>${sw ? `<span class="sw" style="background:${sw}"></span>` : ''}${name}</td><td class="n">${fmt(v, 1)}</td><td class="n">${order != null ? fmt(order, 1) : '—'}</td><td class="n">${rho ? fmt(order * rho, 0) : '—'}</td></tr>`;
+  };
+  document.getElementById('vols').innerHTML = `<table><thead><tr><th>Работа / материал</th><th>в деле, м³</th><th>заказ, м³</th><th>≈ т</th></tr></thead><tbody>
+    ${row('#4c3a26', `Снятие плодородного слоя ${fmt(P.strip)} м`, R.vTop)}
+    ${row('#7b5b3e', 'Доп. выемка под уклон основания', R.vExtra)}
+    ${row('#86664a', 'Выемка из канав (ниже естеств. уровня)', R.exc)}
+    ${row('#a4835c', 'Отсыпка бермы и бортов канав', R.bank)}
+    ${row('#86898c', `Щебень 40×70 · ${fmt(P.t1)} м`, R.v1, K_STONE, RHO.g1)}
+    ${row('#aeb1b4', `Щебень 20×40 · ${fmt(P.t2)} м`, R.v2, K_STONE, RHO.g2)}
+    ${row('#d6bb80', 'Песок', R.vSand, K_SAND, RHO.sand)}
+  </tbody></table>
+  <p class="note" style="margin-top:6px">Заказ = объём в деле × коэффициент уплотнения: щебень ${fmt(K_STONE, 1)}, песок ${fmt(K_SAND, 1)}. Насыпная плотность: 40×70 ${fmt(RHO.g1)}, 20×40 ${fmt(RHO.g2)}, песок ${fmt(RHO.sand)} т/м³. Уточните у поставщика.</p>`;
+
+  document.getElementById('asm').innerHTML = [
+    `«До уровня дороги + 0,1 м» понято как подъём на 0,6 + 0,1 = 0,7 м, то есть верх участка на уровне дороги. Это сходится с суммой слоёв 0,2 + 0,1 + 0,4 = 0,7 м. Если нужен верх на 0,10 выше дороги, поставьте финишную отметку +0,10.`,
+    `Плодородный слой снимается на ${fmt(P.strip)} м у стороны С. К стороне А основание опускается на ${fmt(P.iCA, 1)} см/м, и там выемка ${fmt(P.strip + P.iCA / 100 * P.W)} м.`,
+    `Слои щебня идут параллельно основанию одинаковой толщины, песок выравнивает поверхность до финишной отметки. Второй вариант (песок постоянной толщины по уклону) включается в «Слоях отсыпки».`,
+    `Из ${fmt(P.gap)} м между дорогой и участком канава занимает ${fmt(M.wTop)} м от края дороги, ещё ${fmt(P.gap - M.wTop)} м у границы участка остаются бермой на уровне дороги.`,
+    `Глубина ${fmt(P.depth)} м от уровня дороги задана в мелком конце канавы (у угла 4). К точке 1 дно понижается на ${fmt(P.iD, 1)} см/м.`,
+  ].map(t => `<li>${t}</li>`).join('');
+}
+
+/* ---------- интерфейс ---------- */
+const STAGES = ['Исходный', 'Снятие слоя', 'Канавы', 'Щебень 40×70', 'Щебень 20×40', 'Песок'];
+const STAGE_TXT = [
+  () => `Участок ниже дороги на ${fmt(P.drop)} м, плодородный слой не снят.`,
+  () => `Снять плодородный слой ${fmt(P.strip)} м и спланировать основание с уклоном ${fmt(P.iCA, 1)} см/м от стороны С к стороне А${P.iDB > 0 ? ` и ${fmt(P.iDB, 1)} см/м от D к Б` : ''}.`,
+  () => { const M = model(); return `Вырыть канавы вдоль сторон А и Б: ${fmt(M.wTop)} м по верху, с отступом ${fmt(P.gap - M.wTop)} м от границы, дно с уклоном ${fmt(P.iD, 1)} см/м к точке 1.`; },
+  () => `Отсыпать щебень 40×70 слоем ${fmt(P.t1)} м по основанию и уплотнить.`,
+  () => `Отсыпать щебень 20×40 слоем ${fmt(P.t2)} м и уплотнить.`,
+  () => P.finishMode === 'flat' ? `Отсыпать песок до отметки ${lvl(P.finish)} (дорога = 0,00), уплотнять послойно.` : `Отсыпать песок слоем ${fmt(P.t3)} м параллельно основанию.`,
+];
+const stEl = document.getElementById('stages');
+stEl.innerHTML = STAGES.map((n, i) => `<button type="button" data-st="${i}"><b>${i}</b>${n}</button>`).join('');
+stEl.addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (!b) return; stopPlay(); P.stage = +b.dataset.st; update(); });
+
+const SCHEMA = [
+  {g: 'Участок', items: [
+    {k: 'L', label: 'Стороны А и С', unit: 'м', min: 10, max: 60, step: 0.5},
+    {k: 'W', label: 'Стороны Б и D', unit: 'м', min: 10, max: 40, step: 0.5}]},
+  {g: 'Уровни (дорога = 0,00)', items: [
+    {k: 'drop', label: 'Участок ниже дороги', unit: 'м', min: 0, max: 1.5, step: 0.05},
+    {k: 'strip', label: 'Снятие плодородного слоя', unit: 'м', min: 0, max: 0.4, step: 0.01},
+    {k: 'finish', label: 'Финишная отметка участка', unit: 'м', min: -0.3, max: 0.5, step: 0.01, show: () => P.finishMode === 'flat'}]},
+  {g: 'Уклоны', items: [
+    {k: 'iCA', label: 'Основание: от С к А', unit: 'см/м', min: 0, max: 5, step: 0.1},
+    {k: 'iDB', label: 'Основание: от D к Б', unit: 'см/м', min: 0, max: 5, step: 0.1},
+    {k: 'iD', label: 'Дно канав к точке 1', unit: 'см/м', min: 0, max: 5, step: 0.1}]},
+  {g: 'Слои отсыпки', mode: true, items: [
+    {k: 't1', label: '1 · Щебень 40×70', unit: 'м', min: 0.05, max: 0.5, step: 0.01},
+    {k: 't2', label: '2 · Щебень 20×40', unit: 'м', min: 0, max: 0.3, step: 0.01},
+    {k: 't3', label: '3 · Песок', unit: 'м', min: 0.05, max: 1, step: 0.01, show: () => P.finishMode === 'parallel'}]},
+  {g: 'Дренажная канава', items: [
+    {k: 'gap', label: 'От дороги до границы участка', unit: 'м', min: 0.5, max: 3, step: 0.05},
+    {k: 'offset', label: 'Отступ от границы участка', unit: 'м', min: 0, max: 1, step: 0.05},
+    {k: 'depth', label: 'Глубина от уровня дороги', unit: 'м', min: 0.3, max: 2.5, step: 0.05, hint: 'В мелком конце канавы, у угла 4'},
+    {k: 'bw', label: 'Ширина по дну', unit: 'м', min: 0.1, max: 1.5, step: 0.05}]},
+];
+const ctrls = {};
+const params = document.getElementById('params');
+for (const grp of SCHEMA) {
+  const d = document.createElement('details'); d.className = 'grp'; d.open = true;
+  d.innerHTML = `<summary>${grp.g}</summary>`;
+  const body = document.createElement('div'); body.className = 'grp-body';
+  if (grp.mode) {
+    const seg = document.createElement('div'); seg.className = 'seg'; seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Верх песка');
+    seg.innerHTML = `<button type="button" data-fm="flat">Песок до ровного верха</button><button type="button" data-fm="parallel">Песок по уклону</button>`;
+    seg.addEventListener('click', e => { const b = e.target.closest('[data-fm]'); if (!b) return; P.finishMode = b.dataset.fm; update(); });
+    body.appendChild(seg);
+  }
+  for (const it of grp.items) {
+    const row = document.createElement('div'); row.className = 'prm';
+    const id = 'p-' + it.k;
+    row.innerHTML = `<label for="${id}">${it.label}</label><span class="num"><input type="number" id="${id}n" min="${it.min}" max="${it.max}" step="${it.step}" aria-label="${it.label}"><i>${it.unit}</i></span><input type="range" id="${id}" min="${it.min}" max="${it.max}" step="${it.step}">${it.hint ? `<small>${it.hint}</small>` : ''}`;
+    body.appendChild(row);
+    ctrls[it.k] = {row, it, r: row.querySelector('input[type=range]'), n: row.querySelector('input[type=number]')};
+  }
+  d.appendChild(body); params.appendChild(d);
+}
+ctrls.exag = {row: null, it: {}, r: document.getElementById('p-exag'), n: document.getElementById('p-exagn')};
+for (const [k, c] of Object.entries(ctrls)) {
+  c.r.addEventListener('input', () => { P[k] = +c.r.value; c.n.value = c.r.value; schedule(); });
+  c.n.addEventListener('change', () => { const v = parseFloat(String(c.n.value).replace(',', '.')); if (isNaN(v)) return; P[k] = clamp(v, +c.r.min, +c.r.max); schedule(); });
+}
+const toggles = {labels: 't-labels', surround: 't-surround', arrows: 't-arrows', cut: 't-cut'};
+for (const [k, id] of Object.entries(toggles)) document.getElementById(id).addEventListener('change', e => { P[k] = e.target.checked; schedule(); });
+document.querySelectorAll('[data-axis]').forEach(b => b.addEventListener('click', () => { if (P.axis === b.dataset.axis) return; P.axis = b.dataset.axis; P.pos = (P.axis === 'x' ? P.L : P.W) / 2; schedule(); }));
+document.querySelectorAll('[data-zoom]').forEach(b => b.addEventListener('click', () => { P.zoom = b.dataset.zoom; schedule(); }));
+const secPos = document.getElementById('secPos');
+secPos.addEventListener('input', () => { P.pos = +secPos.value; schedule(); });
+document.getElementById('reset').addEventListener('click', () => { stopPlay(); Object.assign(P, DEF); update(); goView('iso'); });
+
+let playT = null;
+const playBtn = document.getElementById('play');
+function stopPlay() { if (playT) { clearInterval(playT); playT = null; playBtn.textContent = '▶ Показать по этапам'; } }
+playBtn.addEventListener('click', () => {
+  if (playT) return stopPlay();
+  P.stage = 0; update(); playBtn.textContent = '■ Остановить';
+  playT = setInterval(() => { if (P.stage >= 5) return stopPlay(); P.stage++; update(); }, 1600);
+});
+
+let raf = 0;
+function schedule() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; update(); }); }
+function update() {
+  const maxPos = P.axis === 'x' ? P.L : P.W;
+  P.pos = clamp(P.pos, -P.gap, maxPos);
+  for (const [k, c] of Object.entries(ctrls)) {
+    c.r.value = P[k]; if (document.activeElement !== c.n) c.n.value = P[k];
+    if (c.row && c.it.show) c.row.hidden = !c.it.show();
+  }
+  for (const [k, id] of Object.entries(toggles)) document.getElementById(id).checked = P[k];
+  document.querySelectorAll('[data-st]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.st === P.stage)));
+  document.querySelectorAll('[data-fm]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.fm === P.finishMode)));
+  document.querySelectorAll('[data-axis]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.axis === P.axis)));
+  document.querySelectorAll('[data-zoom]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.zoom === P.zoom)));
+  secPos.min = -P.gap; secPos.max = maxPos; secPos.step = 0.1; secPos.value = P.pos;
+  document.getElementById('secPosOut').textContent = `${fmt(P.pos, 1)} м`;
+  document.getElementById('stageTxt').textContent = STAGE_TXT[P.stage]();
+  document.getElementById('stageChip').innerHTML = `Этап ${P.stage} · <b>${STAGES[P.stage]}</b>`;
+  document.querySelector('.ctrl .head h1').textContent = `Участок ${fmt(P.L, 1).replace(',0', '')} × ${fmt(P.W, 1).replace(',0', '')} м`;
+  rebuild(); drawSection(); renderResults();
+}
+
+try { init3D(); } catch (err) {
+  console.error(err);
+  view.insertAdjacentHTML('beforeend', '<div class="no3d"><b>3D-модель не открылась</b><span>Браузер не поддерживает WebGL или библиотека не загрузилась. Этапы, разрез и ведомость работают.</span></div>');
+}
+update();
+resize();
+goView('iso', true);
+})();
+</script>
+</body></html>
