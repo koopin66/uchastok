@@ -109,6 +109,7 @@ details.grp summary::-webkit-details-marker{display:none}
 details.grp summary::after{content:"+";font-family:var(--f-mono);color:var(--ink-2)}
 details.grp[open] summary::after{content:"−"}
 .grp-body{padding:0 16px 12px;display:flex;flex-direction:column;gap:10px}
+.coords{table-layout:fixed}.coords td,.coords th{padding:2px 3px}.coords th:first-child,.coords td:first-child{width:22px}.coords input{width:100%;padding:2px 4px;border:1px solid var(--rule);border-radius:3px;background:var(--paper);font-family:var(--f-mono);font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
 .prm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;align-items:center}
 .prm label{font-size:13px}
 .prm .num{display:flex;align-items:center;gap:4px}
@@ -279,126 +280,32 @@ ul.asm{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px;fon
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/renderers/CSS2DRenderer.js"></script>
+<script src="model.js"></script>
 <script>
 (() => {
 const T3 = window.THREE;
 const OrbitControls = T3 && T3.OrbitControls, CSS2DRenderer = T3 && T3.CSS2DRenderer, CSS2DObject = T3 && T3.CSS2DObject;
+const UM = window.UchastokModel;
 
 /* ---------- исходные данные ---------- */
-const DEF = {L:31, W:19, drop:0.6, strip:0.1, finish:0, finishMode:'flat', t1:0.2, t2:0.1, t3:0.4,
-  iCA:2, iDB:0, iD:2, gap:1, offset:0.3, depth:1, bw:0.3,
-  exag:3, stage:5, labels:true, surround:true, arrows:true, cut:false, axis:'x', pos:15.5, zoom:'all'};
-const P = {...DEF};
-const CAP = 0.3, ROADW = 6, EXT = 14;
-const K_STONE = 1.3, K_SAND = 1.2, RHO = {g1:1.45, g2:1.40, sand:1.50};
+const clone = o => JSON.parse(JSON.stringify(o));
+const VIEW_DEF = {exag: 3, stage: 5, labels: true, surround: true, arrows: true, cut: false, axis: 'x', pos: null, zoom: 'all'};
+const P = {...clone(UM.DEF), ...VIEW_DEF};
+const {CAP, ROADW, EXT} = UM;
+const K_STONE = 1.3, K_SAND = 1.2, RHO = {g1: 1.45, g2: 1.40, sand: 1.50};
 
 const fmt = (v, d = 2) => { const s = Math.abs(v).toFixed(d).replace('.', ','); return (v < -0.5 * 10 ** -d ? '−' : '') + s; };
 const lvl = v => { const r = Math.round(v * 100) / 100; if (Math.abs(r) < 0.005) return '0,00'; return (r > 0 ? '+' : '−') + Math.abs(r).toFixed(2).replace('.', ','); };
+const dms = a => { let d = Math.floor(a), m = Math.round((a - d) * 60); if (m === 60) { d++; m = 0; } return `${d}°${String(m).padStart(2, '0')}′`; };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-
-/* ---------- геометрия: все высоты в метрах от уровня дороги ---------- */
-// x — вдоль стороны А (0 у стороны Б, L у стороны D), z — вдоль стороны Б (0 у стороны А, W у стороны С)
-function model(stage = P.stage) {
-  const i1 = P.iCA / 100, i2 = P.iDB / 100, iD = P.iD / 100;
-  const baseHigh = -(P.drop + P.strip);                       // основание в углу 3 (самая высокая точка)
-  const base = (x, z) => baseHigh - i1 * (P.W - z) - i2 * (P.L - x);
-  const top1 = (x, z) => base(x, z) + P.t1;
-  const top2 = (x, z) => top1(x, z) + P.t2;
-  const fin = P.finishMode === 'flat' ? (x, z) => Math.max(P.finish, top2(x, z)) : (x, z) => top2(x, z) + P.t3;
-  const wTop = Math.max(0.1, P.gap - P.offset);
-  const bw = Math.min(P.bw, wTop - 0.04);
-  const e = (wTop - bw) / 2;
-  const corner = -(P.depth + iD * Math.max(P.L, P.W));        // дно у точки 1; в мелком конце глубина = depth
-  const bot = s => corner + iD * Math.max(0, s);
-  const prof = (u, b) => {
-    if (u < 0 || u >= wTop) return 0;
-    if (u < e) return b * (u / e);
-    if (u <= e + bw) return b;
-    return b * (1 - (u - e - bw) / e);
-  };
-  const hGapBuilt = (x, z) => {
-    const hA = x <= P.L ? prof(z + P.gap, bot(Math.max(x, 0))) : 0;
-    const hB = z <= P.W ? prof(x + P.gap, bot(Math.max(z, 0))) : 0;
-    return Math.min(hA, hB);
-  };
-  const hGap = stage >= 2 ? hGapBuilt : () => -P.drop;
-  const plotTop = (x, z) => stage === 0 ? -P.drop : stage <= 2 ? base(x, z) : stage === 3 ? top1(x, z) : stage === 4 ? top2(x, z) : fin(x, z);
-  return {base, top1, top2, fin, hGap, hGapBuilt, bot, corner, wTop, bw, e, plotTop};
-}
-
-function zoneAt(x, z) {
-  const g = P.gap;
-  if (x >= 0 && x <= P.L && z >= 0 && z <= P.W) return 'plot';
-  if (z >= -g && z < 0 && x >= -g && x <= P.L + CAP) return 'strip';
-  if (x >= -g && x < 0 && z >= 0 && z <= P.W + CAP) return 'strip';
-  if (z >= -g - ROADW && z < -g && x >= -g - ROADW && x <= P.L + EXT) return 'road';
-  if (x >= -g - ROADW && x < -g && z >= -g && z <= P.W + EXT) return 'road';
-  return 'out';
-}
-function column(x, z, M, deep) {
-  const out = []; const B = (n, a, b) => { if (b > a + 1e-6) out.push([n, a, b]); };
-  const st = P.stage, nat = -P.drop, ts = -P.drop - P.strip;
-  switch (zoneAt(x, z)) {
-    case 'road': B('soil', deep, nat); B('roadbed', nat, -0.12); B('road', Math.max(nat, -0.12), 0); break;
-    case 'strip': { const h = M.hGap(x, z); B('soil', deep, Math.min(h, nat)); B('fill', nat, h); break; }
-    case 'plot': {
-      if (st === 0) { B('soil', deep, ts); B('topsoil', ts, nat); }
-      else {
-        const b = M.base(x, z); B('soil', deep, b);
-        if (st >= 3) B('g1', b, M.top1(x, z));
-        if (st >= 4) B('g2', M.top1(x, z), M.top2(x, z));
-        if (st >= 5) B('sand', M.top2(x, z), M.fin(x, z));
-      }
-      break;
-    }
-    default: B('soil', deep, ts); B('topsoil', ts, nat);
-  }
-  return out;
-}
-
-/* ---------- расчёт объёмов и проверок ---------- */
-function stats() {
-  const M = model(5);
-  const S = P.L * P.W;
-  const nX = 62, nZ = 38, dA = S / (nX * nZ);
-  let vStrip = 0, vSand = 0;
-  for (let i = 0; i < nX; i++) for (let j = 0; j < nZ; j++) {
-    const x = (i + 0.5) * P.L / nX, z = (j + 0.5) * P.W / nZ;
-    vStrip += Math.max(0, -P.drop - M.base(x, z)) * dA;
-    vSand += Math.max(0, M.fin(x, z) - M.top2(x, z)) * dA;
-  }
-  const C = [[0, 0], [0, P.W], [P.L, P.W], [P.L, 0]];   // углы 1..4
-  const sandAt = C.map(([x, z]) => M.fin(x, z) - M.top2(x, z));
-  const vTop = S * P.strip, vExtra = Math.max(0, vStrip - vTop);
-  const v1 = S * P.t1, v2 = S * P.t2;
-  // канавы: численное интегрирование по полосе между дорогой и участком
-  let cap = 0, exc = 0, bank = 0; const dx = 0.1, du = 0.02;
-  const strip = (x0, x1, z0, z1) => {
-    for (let x = x0 + dx / 2; x < x1; x += dx) for (let z = z0 + du / 2; z < z1; z += du) {
-      const h = M.hGapBuilt(x, z);
-      cap += Math.max(0, -h) * dx * du; exc += Math.max(0, -P.drop - h) * dx * du; bank += Math.max(0, h + P.drop) * dx * du;
-    }
-  };
-  // шаги по x и z разные, поэтому полосу Б считаем с переставленными шагами
-  for (let x = -P.gap + du / 2; x < 0; x += du) for (let z = dx / 2; z < P.W; z += dx) {
-    const h = M.hGapBuilt(x, z);
-    cap += Math.max(0, -h) * dx * du; exc += Math.max(0, -P.drop - h) * dx * du; bank += Math.max(0, h + P.drop) * dx * du;
-  }
-  strip(-P.gap, P.L, -P.gap, 0);
-  // зазор дна канавы и низа щебня у края участка
-  let minClr = 1e9, where = '';
-  for (let x = 0; x <= P.L + 1e-9; x += 0.1) { const c = M.base(x, 0) - M.bot(x); if (c < minClr) { minClr = c; where = `сторона А, ${fmt(x, 1)} м от угла 1`; } }
-  for (let z = 0; z <= P.W + 1e-9; z += 0.1) { const c = M.base(0, z) - M.bot(z); if (c < minClr) { minClr = c; where = `сторона Б, ${fmt(z, 1)} м от угла 1`; } }
-  const len = (P.L + P.gap - M.wTop / 2) + (P.W + P.gap - M.wTop / 2);
-  return {M, S, C, sandAt, vTop, vExtra, v1, v2, vSand, cap, exc, bank, minClr, where, len,
-    dMin: P.depth, dMax: -M.corner, dB: -(M.bot(P.W))};
-}
+const model = (stage = P.stage) => UM.build(P, stage);
+const sideLen = M => ({A: M.S.A.len, B: M.S.B.len, C: M.S.C.len, D: M.S.D.len});
 
 /* ---------- three.js ---------- */
 // 3D запускается отдельно: если WebGL или библиотека недоступны, разрез и ведомость всё равно работают
 const view = document.getElementById('view');
 const coarse = matchMedia('(max-width: 820px), (pointer: coarse)').matches;
-let has3D = false, renderer, labelR, scene, camera, controls, sun, MAT, paint, edgeMat, stakeMat, lowMat, clipPlane, world, marks;
+let has3D = false, renderer, labelR, scene, camera, controls, sun, MAT, edgeMat, stakeMat, lowMat, clipPlane, world, marks;
 
 function applyTheme() {
   if (!scene) return;
@@ -471,7 +378,6 @@ function init3D() {
     ditch: mk(canvasTex(256, grain('#86664a', 0.2, 9000), 1.5)),
     grass: mk(canvasTex(256, grain('#7f9662', 0.18, 12000), 5)),
   };
-  paint = new THREE.MeshBasicMaterial({color: 0xeeeeee});
   edgeMat = new THREE.LineBasicMaterial({color: 0x1b282d, transparent: true, opacity: 0.3});
   stakeMat = new THREE.MeshStandardMaterial({color: 0xc2410c, roughness: 0.6});
   lowMat = new THREE.MeshStandardMaterial({color: 0x1f5f9c, roughness: 0.4, emissive: 0x0b2440});
@@ -501,18 +407,19 @@ function addGrid(G, nu, nv, f, flip) {
   }
 }
 const lerp = (a, b, t) => a + (b - a) * t;
-// тело между двумя поверхностями над прямоугольником
-function slab(x0, x1, z0, z1, bot, top, nx, nz, mat, edges = true) {
+const lerp2 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
+// тело между двумя поверхностями над четырёхугольником q = [p00, p10, p11, p01] (точки [x, z])
+function slab(q, bot, top, nu, nv, mat, edges = true) {
+  const map = (u, v) => lerp2(lerp2(q[0], q[1], u), lerp2(q[3], q[2], u), v);
   const G = {pos: [], uv: [], idx: []};
-  addGrid(G, nx, nz, (u, v) => { const x = lerp(x0, x1, u), z = lerp(z0, z1, v); return [x, top(x, z), z, x, z]; }, false);
-  addGrid(G, nx, nz, (u, v) => { const x = lerp(x0, x1, u), z = lerp(z0, z1, v); return [x, bot(x, z), z, x, z]; }, true);
-  const side = (fixed, n, along, flip) => addGrid(G, n, 1, (u, v) => {
-    const p = along(u); const y = lerp(bot(p[0], p[1]), top(p[0], p[1]), v); return [p[0], y, p[1], fixed ? p[1] : p[0], y];
-  }, flip);
-  side(true, nz, u => [x0, lerp(z0, z1, u)], true);
-  side(true, nz, u => [x1, lerp(z0, z1, u)], false);
-  side(false, nx, u => [lerp(x0, x1, u), z0], false);
-  side(false, nx, u => [lerp(x0, x1, u), z1], true);
+  addGrid(G, nu, nv, (u, v) => { const [x, z] = map(u, v); return [x, top(x, z), z, x, z]; }, false);
+  addGrid(G, nu, nv, (u, v) => { const [x, z] = map(u, v); return [x, bot(x, z), z, x, z]; }, true);
+  const side = (n, f, flip) => {
+    const a = f(0), b = f(1), L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    addGrid(G, n, 1, (w, h) => { const [x, z] = f(w); const y = lerp(bot(x, z), top(x, z), h); return [x, y, z, w * L, y]; }, flip);
+  };
+  side(nv, w => map(0, w), true); side(nv, w => map(1, w), false);
+  side(nu, w => map(w, 0), false); side(nu, w => map(w, 1), true);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(G.pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(G.uv, 2));
@@ -522,6 +429,7 @@ function slab(x0, x1, z0, z1, bot, top, nx, nz, mat, edges = true) {
   return m;
 }
 const flat = v => () => v;
+const qLen = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
 
 function clearGroup(g) {
   for (let i = g.children.length - 1; i >= 0; i--) {
@@ -530,9 +438,10 @@ function clearGroup(g) {
     g.remove(o);
   }
 }
+let CUR = null, CUT_L = null;   // текущая модель и линия разреза для подписей и камеры
 function visible(x, z) {
-  if (!P.cut) return true;
-  return P.axis === 'x' ? x <= P.pos + 0.01 : z <= P.pos + 0.01;
+  if (!P.cut || !CUT_L) return true;
+  return (x - CUT_L.p0[0]) * CUT_L.t[0] + (z - CUT_L.p0[1]) * CUT_L.t[1] <= 0.01;
 }
 function label(html, cls, x, y, z, force) {
   if (!P.labels && !force) return;
@@ -542,96 +451,106 @@ function label(html, cls, x, y, z, force) {
 }
 function arrow(dir, x, y, z, len, color) {
   if (!visible(x, z)) return;
-  marks.add(new THREE.ArrowHelper(dir, new THREE.Vector3(x, y, z), len, color, len * 0.38, len * 0.22));
+  marks.add(new THREE.ArrowHelper(new THREE.Vector3(dir[0], 0, dir[1]).normalize(), new THREE.Vector3(x, y, z), len, color, len * 0.38, len * 0.22));
 }
 
 function rebuild() {
   if (!has3D) { renderLegend(); return; }
   clearGroup(world); clearGroup(marks);
-  const M = model(); const ex = P.exag, st = P.stage, g = P.gap;
+  const M = model(); CUR = M; CUT_L = M.secLine(P.axis, P.pos);
+  const ex = P.exag, st = P.stage, g = P.gap, {Q, pts, S} = M;
   world.scale.y = ex;
-  const deep = Math.min(M.corner, M.base(0, 0)) - 0.9;
+  const deep = Math.min(M.corner, M.base(...pts[0])) - 0.9;
   renderer.clippingPlanes = [];
   if (P.cut) {
-    clipPlane.normal.set(P.axis === 'x' ? -1 : 0, 0, P.axis === 'z' ? -1 : 0); clipPlane.constant = P.pos;
+    const L = CUT_L;
+    clipPlane.normal.set(-L.t[0], 0, -L.t[1]); clipPlane.constant = L.t[0] * L.p0[0] + L.t[1] * L.p0[1];
     renderer.clippingPlanes = [clipPlane];
   }
   // участок
   const soilTop = st === 0 ? flat(-P.drop - P.strip) : M.base;
-  slab(0, P.L, 0, P.W, flat(deep), soilTop, 12, 8, MAT.soil);
-  if (st === 0) slab(0, P.L, 0, P.W, flat(-P.drop - P.strip), flat(-P.drop), 12, 8, MAT.topsoil);
-  if (st >= 3) slab(0, P.L, 0, P.W, M.base, M.top1, 12, 8, MAT.g1);
-  if (st >= 4) slab(0, P.L, 0, P.W, M.top1, M.top2, 12, 8, MAT.g2);
-  if (st >= 5) slab(0, P.L, 0, P.W, M.top2, M.fin, 24, 16, MAT.sand);
-  // полоса между дорогой и участком: канава + берма
-  const nA = Math.ceil((P.L + CAP + g) / 0.2), nL = Math.max(24, Math.round(g / 0.025));
-  slab(-g, P.L + CAP, -g, 0, flat(deep), M.hGap, nA, nL, MAT.ditch);
-  slab(-g, 0, 0, P.W + CAP, flat(deep), M.hGap, nL, Math.ceil((P.W + CAP) / 0.2), MAT.ditch);
+  slab(Q.plot, flat(deep), soilTop, 12, 8, MAT.soil);
+  if (st === 0) slab(Q.plot, flat(-P.drop - P.strip), flat(-P.drop), 12, 8, MAT.topsoil);
+  if (st >= 3) slab(Q.plot, M.base, M.top1, 12, 8, MAT.g1);
+  if (st >= 4) slab(Q.plot, M.top1, M.top2, 12, 8, MAT.g2);
+  if (st >= 5) slab(Q.plot, M.top2, M.fin, 24, 16, MAT.sand);
+  // полоса между дорогой и участком: канавы, угол у точки 1, берма
+  const nL = Math.max(24, Math.round(g / 0.025));
+  slab(Q.stripA, flat(deep), M.hGap, Math.ceil(qLen(Q.stripA[0], Q.stripA[1]) / 0.2), nL, MAT.ditch);
+  slab(Q.stripB, flat(deep), M.hGap, Math.ceil(qLen(Q.stripB[0], Q.stripB[1]) / 0.2), nL, MAT.ditch);
+  slab(Q.corner, flat(deep), M.hGap, nL, nL, MAT.ditch);
 
   if (P.surround) {
-    const r0 = -g - ROADW;
-    slab(r0, P.L + EXT, r0, -g, flat(-P.drop), flat(-0.12), 4, 2, MAT.roadbed);
-    slab(r0, P.L + EXT, r0, -g, flat(-0.12), flat(0), 4, 2, MAT.road);
-    slab(r0, -g, -g, P.W + EXT, flat(-P.drop), flat(-0.12), 2, 4, MAT.roadbed);
-    slab(r0, -g, -g, P.W + EXT, flat(-0.12), flat(0), 2, 4, MAT.road);
-    // разметка
-    const stripe = (x0, x1, z0, z1) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), paint); m.rotation.x = -Math.PI / 2; m.position.set((x0 + x1) / 2, 0.004, (z0 + z1) / 2); world.add(m); };
-    const zc = -g - ROADW / 2, xc = -g - ROADW / 2;
-    for (let x = xc + 4; x < P.L + EXT - 2; x += 6) stripe(x, x + 3, zc - 0.06, zc + 0.06);
-    for (let z = zc + 4; z < P.W + EXT - 2; z += 6) stripe(xc - 0.06, xc + 0.06, z, z + 3);
-    stripe(r0 + 0.3, P.L + EXT, -g - 0.42, -g - 0.3); stripe(-g - 0.42, -g - 0.3, -g - 0.3, P.W + EXT);
+    for (const q of [Q.roadA, Q.roadB]) {
+      slab(q, flat(-P.drop), flat(-0.12), 4, 2, MAT.roadbed);
+      slab(q, flat(-0.12), flat(0), 4, 2, MAT.road);
+    }
+    // осевая разметка
+    for (const [a, b] of [M.roadAxis.A, M.roadAxis.B]) {
+      const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(a[0], 0.006, a[1]), new THREE.Vector3(b[0], 0.006, b[1])]),
+        new THREE.LineDashedMaterial({color: 0xeeeeee, dashSize: 3, gapSize: 3}));
+      ln.computeLineDistances(); world.add(ln);
+    }
     // естественный грунт вокруг, с вырезом под участок и канавы
+    const [cx, cz] = M.cen;
     const sh = new THREE.Shape();
-    sh.moveTo(-70, 70); sh.lineTo(P.L + 70, 70); sh.lineTo(P.L + 70, -(P.W + 70)); sh.lineTo(-70, -(P.W + 70)); sh.lineTo(-70, 70);
+    sh.moveTo(cx - 75, -(cz - 75)); sh.lineTo(cx + 75, -(cz - 75)); sh.lineTo(cx + 75, -(cz + 75)); sh.lineTo(cx - 75, -(cz + 75)); sh.lineTo(cx - 75, -(cz - 75));
     const hole = new THREE.Path();
-    [[-g, -g], [P.L + CAP, -g], [P.L + CAP, 0], [P.L, 0], [P.L, P.W], [0, P.W], [0, P.W + CAP], [-g, P.W + CAP]]
-      .forEach(([x, z], i) => i ? hole.lineTo(x, -z) : hole.moveTo(x, -z));
+    Q.hole.forEach(([x, z], i) => i ? hole.lineTo(x, -z) : hole.moveTo(x, -z));
     hole.closePath(); sh.holes.push(hole);
     const gm = new THREE.Mesh(new THREE.ShapeGeometry(sh), MAT.grass);
     gm.rotation.x = -Math.PI / 2; gm.position.y = -P.drop - 0.003; gm.receiveShadow = true; world.add(gm);
-    label('Автодорога', 'road', P.L * 0.55, 0.3, -g - ROADW / 2);
-    label('Автодорога', 'road', -g - ROADW / 2, 0.3, P.W * 0.55);
+    const ra = M.along(M.along(pts[0], S.A.t, M.lenA * 0.55), S.A.n, g + ROADW / 2);
+    const rb = M.along(M.along(pts[0], S.B.t, M.lenB * 0.55), S.B.n, g + ROADW / 2);
+    label('Автодорога', 'road', ra[0], 0.3, ra[1]);
+    label('Автодорога', 'road', rb[0], 0.3, rb[1]);
   }
 
   // граница участка
-  const pts = [[0, 0], [0, P.W], [P.L, P.W], [P.L, 0], [0, 0]].map(([x, z]) => new THREE.Vector3(x, M.plotTop(x, z) + 0.02, z));
-  const bl = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({color: 0xc2410c, dashSize: 0.6, gapSize: 0.35}));
+  const ring = [0, 3, 2, 1, 0].map(i => new THREE.Vector3(pts[i][0], M.plotTop(...pts[i]) + 0.02, pts[i][1]));
+  const bl = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ring), new THREE.LineDashedMaterial({color: 0xc2410c, dashSize: 0.6, gapSize: 0.35}));
   bl.computeLineDistances(); world.add(bl);
 
   // межевые знаки и подписи
-  [[0, 0], [0, P.W], [P.L, P.W], [P.L, 0]].forEach(([x, z], i) => {
+  pts.forEach(([x, z], i) => {
     const y = M.plotTop(x, z) * ex;
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.6, 10), stakeMat);
     post.position.set(x, y + 0.8, z); post.castShadow = true;
     if (visible(x, z)) marks.add(post);
     label(String(i + 1), 'corner', x, y + 2.0, z, true);
   });
-  const yt = (x, z) => M.plotTop(x, z) * ex + 0.12;
-  label(`А · ${fmt(P.L, 1).replace(',0', '')} м`, 'edge', P.L / 2, yt(P.L / 2, 1.2), 1.2);
-  label(`Б · ${fmt(P.W, 1).replace(',0', '')} м`, 'edge', 1.6, yt(1.6, P.W / 2), P.W / 2);
-  label(`С · ${fmt(P.L, 1).replace(',0', '')} м`, 'edge', P.L / 2, yt(P.L / 2, P.W - 1.2), P.W - 1.2);
-  label(`D · ${fmt(P.W, 1).replace(',0', '')} м`, 'edge', P.L - 1.6, yt(P.L - 1.6, P.W / 2), P.W / 2);
+  const L = sideLen(M);
+  const sideLbl = (s, name, a, b) => {
+    const m = M.along(lerp2(a, b, 0.5), s.n, -1.4);
+    label(`${name} · ${fmt(s.len)} м`, 'edge', m[0], M.plotTop(...m) * ex + 0.12, m[1]);
+  };
+  sideLbl(S.A, 'А', pts[0], pts[3]); sideLbl(S.B, 'Б', pts[0], pts[1]);
+  sideLbl(S.C, 'С', pts[1], pts[2]); sideLbl(S.D, 'D', pts[2], pts[3]);
+  const nPt = M.along(M.along(pts[3], S.A.n, g + ROADW + 1.5), S.A.t, 4);
+  label('↑ Север', 'muted', nPt[0], 0.3, nPt[1]);
 
-  const flowCol = 0x2f86d6;
+  const flowCol = 0x2f86d6, c = g - M.wTop / 2;
   if (st >= 2) {
-    const zc = -g + M.wTop / 2;
-    const yLow = M.corner * ex;
+    const lp = M.pt(c, c), yLow = M.corner * ex;
     const s = new THREE.Mesh(new THREE.SphereGeometry(0.22, 18, 12), lowMat);
-    s.position.set(zc, yLow + 0.22, zc); if (visible(zc, zc)) marks.add(s);
-    label(`Т.1 · дно ${lvl(M.corner)}`, 'low', zc, yLow + 0.9, zc, true);
-    label('Дренажная канава', 'muted', P.L * 0.72, 0.5, zc);
+    s.position.set(lp[0], yLow + 0.22, lp[1]); if (visible(...lp)) marks.add(s);
+    label(`Т.1 · дно ${lvl(M.corner)}`, 'low', lp[0], yLow + 0.9, lp[1], true);
+    const dl = M.along(M.along(pts[0], S.A.t, M.lenA * 0.72), S.A.n, c);
+    label('Дренажная канава', 'muted', dl[0], 0.5, dl[1]);
     if (P.arrows) {
-      for (let x = P.L - 1.2; x > 0.8; x -= 3) arrow(new THREE.Vector3(-1, 0, 0), x, M.bot(x) * ex + 0.08, zc, 1.8, flowCol);
-      for (let z = P.W - 1.2; z > 0.8; z -= 3) arrow(new THREE.Vector3(0, 0, -1), zc, M.bot(z) * ex + 0.08, z, 1.8, flowCol);
+      for (let a = M.lenA - 1.2; a > 0.8; a -= 3) { const p = M.along(M.along(pts[0], S.A.t, a), S.A.n, c); arrow([-S.A.t[0], -S.A.t[1]], p[0], M.bot(a) * ex + 0.08, p[1], 1.8, flowCol); }
+      for (let b = M.lenB - 1.2; b > 0.8; b -= 3) { const p = M.along(M.along(pts[0], S.B.t, b), S.B.n, c); arrow([-S.B.t[0], -S.B.t[1]], p[0], M.bot(b) * ex + 0.08, p[1], 1.8, flowCol); }
     }
   }
   if ((st === 1 || st === 2) && P.arrows) {
-    for (const fx of [0.25, 0.5, 0.75]) for (const fz of [0.4, 0.75]) {
-      const x = P.L * fx, z = P.W * fz; arrow(new THREE.Vector3(0, 0, -1), x, M.base(x, z) * ex + 0.06, z, 2.6, 0xc2410c);
+    const map = (u, v) => lerp2(lerp2(Q.plot[0], Q.plot[1], u), lerp2(Q.plot[3], Q.plot[2], u), v);
+    for (const fu of [0.25, 0.5, 0.75]) for (const fv of [0.4, 0.75]) {
+      const [x, z] = map(fu, fv); arrow(S.A.n, x, M.base(x, z) * ex + 0.06, z, 2.6, 0xc2410c);
     }
-    label(`уклон ${fmt(P.iCA, 1)} см/м → к стороне А`, '', P.L / 2, M.base(P.L / 2, P.W * 0.58) * ex + 0.4, P.W * 0.58);
+    const [lx, lz] = map(0.5, 0.58);
+    label(`уклон ${fmt(P.iCA, 1)} см/м → к стороне А`, '', lx, M.base(lx, lz) * ex + 0.4, lz);
   }
-  sun.position.set(P.L / 2 + 22, 42, P.W / 2 + 14); sun.target.position.set(P.L / 2, 0, P.W / 2);
+  sun.position.set(M.cen[0] + 22, 42, M.cen[1] + 14); sun.target.position.set(M.cen[0], 0, M.cen[1]);
   renderLegend();
 }
 
@@ -645,19 +564,24 @@ function renderLegend() {
 
 /* ---------- камера ---------- */
 const VIEWS = {
-  iso: () => ({p: [P.L + 16, 24, P.W + 24], t: [P.L / 2, -P.exag * 0.3, P.W / 2]}),
-  plan: () => ({p: [P.L / 2 - 3, Math.max(P.L, P.W) * 1.9, P.W / 2 - 3 + 0.01], t: [P.L / 2 - 3, 0, P.W / 2 - 3]}),
-  sideC: () => ({p: [P.L / 2, 3, P.W + 36], t: [P.L / 2, -0.6, P.W / 2]}),
-  corner1: () => ({p: [8, 6.5, 10], t: [-0.6, -P.exag * 0.6, -0.6]}),
-  cut: () => P.axis === 'x'
-    ? {p: [P.pos + 20, 3.5, P.W / 2 + 2], t: [P.pos, -P.exag * 0.3, P.W / 2 - 3]}
-    : {p: [P.L / 2 + 2, 3.5, P.pos + 20], t: [P.L / 2 - 4, -P.exag * 0.3, P.pos]},
+  iso: M => ({p: [M.cen[0] + 31, 24, M.cen[1] + 34], t: [M.cen[0], -P.exag * 0.3, M.cen[1]]}),
+  plan: M => ({p: [M.cen[0] - 3, 60, M.cen[1] - 3 + 0.01], t: [M.cen[0] - 3, 0, M.cen[1] - 3]}),
+  sideC: M => ({p: [M.cen[0], 3, M.cen[1] + 36], t: [M.cen[0], -0.6, M.cen[1]]}),
+  corner1: M => {
+    const c = P.gap - M.wTop / 2, lp = M.pt(c, c);
+    const inw = [-(M.S.A.n[0] + M.S.B.n[0]), -(M.S.A.n[1] + M.S.B.n[1])], k = 9 / Math.hypot(...inw);
+    return {p: [lp[0] + inw[0] * k, 6.5, lp[1] + inw[1] * k], t: [lp[0], -P.exag * 0.6, lp[1]]};
+  },
+  cut: M => {
+    const L = M.secLine(P.axis, P.pos), mid = L.at(L.tExit / 2);
+    return {p: [mid[0] + L.t[0] * 20 + L.dir[0] * 3, 3.5, mid[1] + L.t[1] * 20 + L.dir[1] * 3], t: [mid[0] - L.dir[0] * 4, -P.exag * 0.3, mid[1] - L.dir[1] * 4]};
+  },
 };
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let tw = null;
 function goView(name, instant) {
   if (!has3D) return;
-  const v = VIEWS[name]();
+  const v = VIEWS[name](CUR || model());
   const p1 = new THREE.Vector3(...v.p), q1 = new THREE.Vector3(...v.t);
   // узкий вертикальный экран: отодвигаем камеру, чтобы участок помещался по ширине
   const f = Math.max(1, 1.3 / (camera.aspect || 1));
@@ -692,17 +616,17 @@ const NAMES = {g1: 'Щебень 40×70', g2: 'Щебень 20×40', sand: 'Пе
 function drawSection() {
   const w = secbox.clientWidth, h = secbox.clientHeight; if (w < 60 || h < 60) return;
   const M = model(); const ax = P.axis === 'x';
-  const len = ax ? P.W : P.L;
+  const Ls = M.secLine(P.axis, P.pos), len = Ls.tExit;
   const zoomD = P.zoom === 'ditch';
   const [t0, t1] = zoomD ? [-P.gap - 2.2, 2.6] : [-P.gap - ROADW - 1, len + 2];
-  const pt = t => ax ? [P.pos, t] : [t, P.pos];
-  const yTop = 0.45, yBot = Math.min(M.corner, M.base(0, 0)) - 0.35;
+  const pt = t => Ls.at(t);
+  const yTop = 0.45, yBot = Math.min(M.corner, M.base(...M.pts[0])) - 0.35;
   const ml = 50, mr = 12, mt = 20, mb = 22;
   const kx = (w - ml - mr) / (t1 - t0), ky = (h - mt - mb) / (yTop - yBot);
   const X = t => ml + (t - t0) * kx, Y = y => mt + (yTop - y) * ky;
   const N = clamp(Math.round((w - ml - mr) / 1.2), 240, 1100), dt = (t1 - t0) / N;
   const cols = [];
-  for (let i = 0; i <= N; i++) { const t = t0 + dt * i; const [x, z] = pt(t); cols.push({t, b: column(x, z, M, yBot)}); }
+  for (let i = 0; i <= N; i++) { const t = t0 + dt * i; cols.push({t, b: M.column(...pt(t), yBot)}); }
   let s = '';
   // полосы материалов (ступенчатые полигоны без щелей)
   for (const n of ['soil', 'topsoil', 'roadbed', 'road', 'fill', 'g1', 'g2', 'sand']) {
@@ -719,7 +643,6 @@ function drawSection() {
     flush();
   }
   s += `<polyline class="surf" points="${cols.map(c => `${X(c.t).toFixed(1)},${Y(c.b.length ? c.b[c.b.length - 1][2] : yBot).toFixed(1)}`).join(' ')}"/>`;
-  // сетка высот
   for (let y = Math.ceil(yBot * 2) / 2; y <= yTop + 1e-9; y += 0.5) {
     s += `<line class="grid" x1="${ml}" x2="${w - mr}" y1="${Y(y)}" y2="${Y(y)}"/><text class="ax" x="${ml - 6}" y="${Y(y) + 3.5}" text-anchor="end">${lvl(y)}</text>`;
   }
@@ -731,12 +654,12 @@ function drawSection() {
   s += `<line class="refn" x1="${ml}" x2="${w - mr}" y1="${Y(-P.drop)}" y2="${Y(-P.drop)}"/>`;
   s += `<text class="txa" x="${ml + 4}" y="${Y(0) - 5}" text-anchor="start">дорога 0,00</text>`;
   s += `<text class="tx" x="${w - mr - 4}" y="${Y(-P.drop) - 4}" text-anchor="end" style="fill:var(--ink-2)">естеств. ${lvl(-P.drop)}</text>`;
-  // границы
   for (const [t, txt] of [[0, 'граница участка'], [-P.gap, 'край дороги']]) {
     s += `<line class="vline" x1="${X(t)}" x2="${X(t)}" y1="${mt}" y2="${h - mb}"/>`;
     if (zoomD) s += `<text class="ax" x="${X(t) + (t === 0 ? 4 : -4)}" y="${mt - 6}" text-anchor="${t === 0 ? 'start' : 'end'}">${txt}</text>`;
   }
-  const lowZone = zoneAt(...pt(-P.gap + M.wTop / 2)) === 'strip';
+  const tc = -P.gap + M.wTop / 2;
+  const lowZone = M.zoneAt(...pt(tc)) === 'strip';
   if (zoomD) {
     const yd = Y(0.3);
     const dim = (a, b, txt) => `<line class="dim" x1="${X(a)}" x2="${X(b)}" y1="${yd}" y2="${yd}"/><line class="dim" x1="${X(a)}" x2="${X(a)}" y1="${yd - 4}" y2="${yd + 4}"/><line class="dim" x1="${X(b)}" x2="${X(b)}" y1="${yd - 4}" y2="${yd + 4}"/><text class="tx" x="${(X(a) + X(b)) / 2}" y="${yd - 4}" text-anchor="middle">${txt}</text>`;
@@ -745,65 +668,62 @@ function drawSection() {
     s += `<text class="ax" x="${X(-P.gap - ROADW / 2)}" y="${mt - 6}" text-anchor="middle">автодорога</text>`;
     s += `<text class="ax" x="${X(len / 2)}" y="${mt - 6}" text-anchor="middle">участок · сторона ${ax ? 'А' : 'Б'} → сторона ${ax ? 'С' : 'D'}</text>`;
   }
-  // отметки
   const mark = (t, y, txt, anchor = 'start', cls = 'tx') => {
     const x = X(t), yy = Y(y);
     s += `<path class="mk" d="M${x - 4},${yy - 6} L${x + 4},${yy - 6} L${x},${yy} Z"/><text class="${cls}" x="${x + (anchor === 'start' ? 6 : anchor === 'end' ? -6 : 0)}" y="${yy - 8}" text-anchor="${anchor}">${txt}</text>`;
   };
   if (P.stage >= 2 && lowZone) {
-    const tc = -P.gap + M.wTop / 2; const [x, z] = pt(tc); const hb = M.hGap(x, z);
+    const hb = M.hGap(...pt(tc));
     if (hb < -0.01) mark(tc, hb, `дно ${lvl(hb)}`, 'start', 'txa');
   }
-  const inPlot = ax ? P.pos >= 0 && P.pos <= P.L : P.pos >= 0 && P.pos <= P.W;
-  if (inPlot) {
+  if (len > 0.5) {
     const edgeT = [0.35]; if (!zoomD) edgeT.push(len - 0.35);
     for (const t of edgeT) {
-      const [x, z] = pt(t); const top = M.plotTop(x, z), b = M.base(x, z);
+      const p = pt(t), top = M.plotTop(...p), b = M.base(...p);
       const anc = t > len / 2 ? 'end' : 'start';
       mark(t, top, lvl(top), anc);
       if (P.stage >= 1 && top - b > 0.05) s += `<text class="tx" x="${X(t) + (anc === 'start' ? 6 : -6)}" y="${Y(b) + 13}" text-anchor="${anc}">низ ${lvl(b)}</text>`;
     }
-    const tm = zoomD ? Math.min(1.5, len / 2) : len / 2; const [x, z] = pt(tm);
-    for (const [n, a, b] of column(x, z, M, yBot)) {
+    const tm = zoomD ? Math.min(1.5, len / 2) : len / 2;
+    for (const [n, a, b] of M.column(...pt(tm), yBot)) {
       if (!NAMES[n]) continue;
-      const hp = (b - a) * ky; if (hp < 12) continue;
+      if ((b - a) * ky < 12) continue;
       s += `<text class="inb" x="${X(tm)}" y="${(Y(a) + Y(b)) / 2 + 4}" text-anchor="middle">${NAMES[n]} · ${fmt(b - a)} м</text>`;
     }
   }
   secbox.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Разрез участка">${s}</svg>`;
   const ratio = ky / kx;
   document.getElementById('secTitle').innerHTML = (ax
-    ? `Разрез 1–1 · ${fmt(P.pos, 1)} м от стороны Б`
-    : `Разрез 2–2 · ${fmt(P.pos, 1)} м от стороны А`) + `<span>верт. масштаб ×${ratio >= 1.5 ? Math.round(ratio) : fmt(ratio, 1)}</span>`;
+    ? `Разрез 1–1 · ${fmt(P.pos, 1)} м от угла 1 вдоль стороны А`
+    : `Разрез 2–2 · ${fmt(P.pos, 1)} м от угла 1 вдоль стороны Б`) + `<span>верт. масштаб ×${ratio >= 1.5 ? Math.round(ratio) : fmt(ratio, 1)}</span>`;
 }
 new ResizeObserver(() => drawSection()).observe(secbox);
 
 /* ---------- ведомость ---------- */
 function renderResults() {
-  const R = stats(), M = R.M;
-  const sot = R.S / 100;
-  const raise = P.finishMode === 'flat' ? Math.max(P.finish, M.top2(P.L, P.W)) - M.base(P.L, P.W) : P.t1 + P.t2 + P.t3;
+  const R = UM.stats(P), M = R.M, pts = M.pts;
+  const raise = Math.max(...pts.map(p => M.fin(...p) - M.base(...p)).filter((v, i) => i === 1 || i === 2));
   document.getElementById('figs').innerHTML = [
-    ['Площадь', `${fmt(R.S, 0)} м²`, `${fmt(sot, 2)} сотки`],
+    ['Площадь', `${fmt(R.S, 1)} м²`, `${fmt(R.S / 100, 2)} сотки`],
     ['Отсыпка на стороне С', `${fmt(raise)} м`, `${fmt(P.drop)} + ${fmt(P.strip)} снятого слоя`],
-    ['Перепад основания', `${fmt(P.iCA / 100 * P.W)} м`, `от С к А, ${fmt(P.iCA, 1)} см/м`],
+    ['Перепад основания', `${fmt(P.iCA / 100 * M.dAmax)} м`, `от С к А, ${fmt(P.iCA, 1)} см/м`],
     ['Нижняя точка', lvl(M.corner), 'дно канавы у угла 1'],
   ].map(([a, b, c]) => `<div class="fig"><span>${a}</span><b>${b}</b><em>${c}</em></div>`).join('');
 
   const ch = [];
-  if (Math.abs(R.S - 600) > 0.5) ch.push(['info', `${fmt(P.L, 1)} × ${fmt(P.W, 1)} = ${fmt(R.S, 0)} м², а не 600 м²`,
-    `Разница ${fmt(Math.abs(600 - R.S), 0)} м². Для ровно 6 соток при стороне Б = ${fmt(P.W, 1)} м сторона А должна быть ${fmt(600 / P.W, 2)} м.`]);
-  else ch.push(['ok', 'Площадь 600 м²', 'Размеры сторон дают ровно 6 соток.']);
+  if (Math.abs(R.S - 600) <= 1) ch.push(['ok', `Площадь ${fmt(R.S, 2)} м²`, 'По координатам углов участок 6 соток.']);
+  else ch.push(['info', `Площадь ${fmt(R.S, 2)} м²`, `По координатам углов, разница с 600 м²: ${fmt(Math.abs(600 - R.S), 1)} м².`]);
+  ch.push(['info', 'Участок не прямоугольный', `Углы: 1 — ${dms(M.angles[0])}, 2 — ${dms(M.angles[1])}, 3 — ${dms(M.angles[2])}, 4 — ${dms(M.angles[3])}. Канавы идут параллельно сторонам А и Б.`]);
   const sMin = Math.min(...R.sandAt), sMax = Math.max(...R.sandAt);
   if (sMin < -0.005) ch.push(['warn', 'Щебень выходит выше финишной отметки', `Не хватает ${fmt(-sMin)} м: поднимите финиш или уменьшите уклон основания.`]);
   else if (P.finishMode === 'flat') ch.push(['info', `Песок от ${fmt(sMin)} до ${fmt(sMax)} м`,
     `Основание идёт с уклоном, а верх ровный, поэтому у стороны А слой песка толще. Песок ${fmt(sMin)} м получается только у стороны С.`]);
-  else ch.push(['info', 'Верх участка идёт с уклоном основания', `У стороны А финиш ${lvl(M.fin(0, 0))}, то есть ниже дороги на ${fmt(-M.fin(0, 0))} м.`]);
+  else ch.push(['info', 'Верх участка идёт с уклоном основания', `У стороны А финиш ${lvl(M.fin(...pts[0]))}, то есть ниже дороги на ${fmt(-M.fin(...pts[0]))} м.`]);
   if (R.minClr < 0.1) {
     const need = P.depth + (0.1 - R.minClr);
     ch.push(['warn', R.minClr < 0 ? 'Дно канавы выше низа щебня' : 'Мало запаса между низом щебня и дном канавы',
-      `Худшее место: ${R.where}, разница ${fmt(R.minClr)} м. Вода из щебня должна стекать в канаву, поэтому дно ниже низа щебня хотя бы на 0,10 м. Нужна глубина в мелком конце ≥ ${fmt(Math.ceil(need * 20) / 20)} м.`]);
-  } else ch.push(['ok', 'Дно канавы ниже низа щебня', `Минимальный запас ${fmt(R.minClr)} м (${R.where}).`]);
+      `Худшее место: сторона ${R.where.side}, ${fmt(R.where.a, 1)} м от угла 1, разница ${fmt(R.minClr)} м. Вода из щебня должна стекать в канаву, поэтому дно ниже низа щебня хотя бы на 0,10 м. Нужна глубина в мелком конце ≥ ${fmt(Math.ceil(need * 20) / 20)} м.`]);
+  } else ch.push(['ok', 'Дно канавы ниже низа щебня', `Минимальный запас ${fmt(R.minClr)} м (сторона ${R.where.side}).`]);
   const mMin = M.e / R.dMax, mMax = M.e / R.dMin;
   if (mMax < 1) ch.push(['warn', `Откосы канавы 1:${fmt(mMin)}…1:${fmt(mMax)}`,
     `Это почти вертикальные стенки: для суглинка нужно не круче 1:1, для песка 1:1,5. В полосе ${fmt(M.wTop)} м пологие откосы не помещаются, поэтому стенки нужно крепить: геотекстиль + щебень, габионы или ж/б лоток.`]);
@@ -814,14 +734,14 @@ function renderResults() {
   document.getElementById('checks').innerHTML = ch.map(([k, t, d]) => `<li><span class="pill ${k}">${k === 'ok' ? 'норма' : k === 'warn' ? 'внимание' : 'инфо'}</span><b>${t}</b><p>${d}</p></li>`).join('');
 
   document.getElementById('levels').innerHTML = `<table><thead><tr><th>Угол</th><th>Естеств.</th><th>Низ щебня</th><th>Верх</th><th>Песок</th></tr></thead><tbody>${
-    R.C.map(([x, z], i) => `<tr><td>${i + 1}</td><td class="n">${lvl(-P.drop)}</td><td class="n">${lvl(M.base(x, z))}</td><td class="n">${lvl(M.fin(x, z))}</td><td class="n">${fmt(M.fin(x, z) - M.top2(x, z))}</td></tr>`).join('')
+    pts.map((p, i) => `<tr><td>${i + 1}</td><td class="n">${lvl(-P.drop)}</td><td class="n">${lvl(M.base(...p))}</td><td class="n">${lvl(M.fin(...p))}</td><td class="n">${fmt(M.fin(...p) - M.top2(...p))}</td></tr>`).join('')
   }</tbody></table>`;
 
   document.getElementById('ditch').innerHTML = `<table><tbody>
     <tr><td>Длина по оси (А + Б)</td><td class="n">${fmt(R.len, 1)} м</td></tr>
     <tr><td>Ширина по верху / по дну</td><td class="n">${fmt(M.wTop)} / ${fmt(M.bw)} м</td></tr>
     <tr><td>Отступ от границы участка</td><td class="n">${fmt(P.gap - M.wTop)} м</td></tr>
-    <tr><td>Глубина: у угла 4 / у угла 2</td><td class="n">${fmt(R.dMin)} / ${fmt(R.dB)} м</td></tr>
+    <tr><td>Глубина: у угла 4 / у угла 2</td><td class="n">${fmt(R.dEndA)} / ${fmt(R.dEndB)} м</td></tr>
     <tr><td>Глубина у точки 1</td><td class="n">${fmt(R.dMax)} м</td></tr>
     <tr><td>Ёмкость канав</td><td class="n">${fmt(R.cap, 1)} м³</td></tr>
   </tbody></table>`;
@@ -842,9 +762,10 @@ function renderResults() {
   <p class="note" style="margin-top:6px">Заказ = объём в деле × коэффициент уплотнения: щебень ${fmt(K_STONE, 1)}, песок ${fmt(K_SAND, 1)}. Насыпная плотность: 40×70 ${fmt(RHO.g1)}, 20×40 ${fmt(RHO.g2)}, песок ${fmt(RHO.sand)} т/м³. Уточните у поставщика.</p>`;
 
   document.getElementById('asm').innerHTML = [
+    'Границы участка взяты из каталога координат кадастрового плана. Север вверху. Сторона А — 1–4 (северная), Б — 1–2 (западная), С — 2–3, D — 3–4. Дорога проходит вдоль А и Б.',
     `«До уровня дороги + 0,1 м» понято как подъём на 0,6 + 0,1 = 0,7 м, то есть верх участка на уровне дороги. Это сходится с суммой слоёв 0,2 + 0,1 + 0,4 = 0,7 м. Если нужен верх на 0,10 выше дороги, поставьте финишную отметку +0,10.`,
-    `Плодородный слой снимается на ${fmt(P.strip)} м у стороны С. К стороне А основание опускается на ${fmt(P.iCA, 1)} см/м, и там выемка ${fmt(P.strip + P.iCA / 100 * P.W)} м.`,
-    `Слои щебня идут параллельно основанию одинаковой толщины, песок выравнивает поверхность до финишной отметки. Второй вариант (песок постоянной толщины по уклону) включается в «Слоях отсыпки».`,
+    `Плодородный слой снимается на ${fmt(P.strip)} м в самом высоком месте у стороны С. К стороне А основание опускается на ${fmt(P.iCA, 1)} см/м перпендикулярно стороне А, и там выемка ${fmt(P.strip + P.iCA / 100 * M.dAmax)} м.`,
+    'Слои щебня идут параллельно основанию одинаковой толщины, песок выравнивает поверхность до финишной отметки. Второй вариант (песок постоянной толщины по уклону) включается в «Слоях отсыпки».',
     `Из ${fmt(P.gap)} м между дорогой и участком канава занимает ${fmt(M.wTop)} м от края дороги, ещё ${fmt(P.gap - M.wTop)} м у границы участка остаются бермой на уровне дороги.`,
     `Глубина ${fmt(P.depth)} м от уровня дороги задана в мелком конце канавы (у угла 4). К точке 1 дно понижается на ${fmt(P.iD, 1)} см/м.`,
   ].map(t => `<li>${t}</li>`).join('');
@@ -865,9 +786,6 @@ stEl.innerHTML = STAGES.map((n, i) => `<button type="button" data-st="${i}"><b>$
 stEl.addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (!b) return; stopPlay(); P.stage = +b.dataset.st; update(); });
 
 const SCHEMA = [
-  {g: 'Участок', items: [
-    {k: 'L', label: 'Стороны А и С', unit: 'м', min: 10, max: 60, step: 0.5},
-    {k: 'W', label: 'Стороны Б и D', unit: 'м', min: 10, max: 40, step: 0.5}]},
   {g: 'Уровни (дорога = 0,00)', items: [
     {k: 'drop', label: 'Участок ниже дороги', unit: 'м', min: 0, max: 1.5, step: 0.05},
     {k: 'strip', label: 'Снятие плодородного слоя', unit: 'м', min: 0, max: 0.4, step: 0.01},
@@ -888,6 +806,30 @@ const SCHEMA = [
 ];
 const ctrls = {};
 const params = document.getElementById('params');
+
+// координаты углов (каталог координат)
+{
+  const d = document.createElement('details'); d.className = 'grp'; d.open = true;
+  d.innerHTML = `<summary>Участок (координаты углов)</summary>
+    <div class="grp-body">
+      <div class="tbl-wrap"><table class="coords"><thead><tr><th>№</th><th>Север</th><th>Восток</th></tr></thead><tbody>
+      ${[0, 1, 2, 3].map(i => `<tr><td>${i + 1}</td><td><input type="number" id="c${i}n" step="0.01" aria-label="Угол ${i + 1}, север"></td><td><input type="number" id="c${i}e" step="0.01" aria-label="Угол ${i + 1}, восток"></td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="note" id="geomInfo"></p>
+    </div>`;
+  params.appendChild(d);
+  [0, 1, 2, 3].forEach(i => ['n', 'e'].forEach((k, j) => {
+    const inp = document.getElementById(`c${i}${k}`);
+    inp.addEventListener('change', () => {
+      const v = parseFloat(String(inp.value).replace(',', '.'));
+      if (isNaN(v)) return;
+      const prev = P.coords[i][j]; P.coords[i][j] = v;
+      // защита от вырожденного участка: откат, если стороны слишком короткие
+      const M = model(); if (Math.min(M.S.A.len, M.S.B.len, M.S.C.len, M.S.D.len) < 3 || M.area < 20) { P.coords[i][j] = prev; }
+      schedule();
+    });
+  }));
+}
 for (const grp of SCHEMA) {
   const d = document.createElement('details'); d.className = 'grp'; d.open = true;
   d.innerHTML = `<summary>${grp.g}</summary>`;
@@ -914,11 +856,11 @@ for (const [k, c] of Object.entries(ctrls)) {
 }
 const toggles = {labels: 't-labels', surround: 't-surround', arrows: 't-arrows', cut: 't-cut'};
 for (const [k, id] of Object.entries(toggles)) document.getElementById(id).addEventListener('change', e => { P[k] = e.target.checked; schedule(); });
-document.querySelectorAll('[data-axis]').forEach(b => b.addEventListener('click', () => { if (P.axis === b.dataset.axis) return; P.axis = b.dataset.axis; P.pos = (P.axis === 'x' ? P.L : P.W) / 2; schedule(); }));
+document.querySelectorAll('[data-axis]').forEach(b => b.addEventListener('click', () => { if (P.axis === b.dataset.axis) return; P.axis = b.dataset.axis; P.pos = null; schedule(); }));
 document.querySelectorAll('[data-zoom]').forEach(b => b.addEventListener('click', () => { P.zoom = b.dataset.zoom; schedule(); }));
 const secPos = document.getElementById('secPos');
 secPos.addEventListener('input', () => { P.pos = +secPos.value; schedule(); });
-document.getElementById('reset').addEventListener('click', () => { stopPlay(); Object.assign(P, DEF); update(); goView('iso'); });
+document.getElementById('reset').addEventListener('click', () => { stopPlay(); Object.assign(P, clone(UM.DEF), VIEW_DEF); update(); goView('iso'); });
 
 let playT = null;
 const playBtn = document.getElementById('play');
@@ -932,22 +874,27 @@ playBtn.addEventListener('click', () => {
 let raf = 0;
 function schedule() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; update(); }); }
 function update() {
-  const maxPos = P.axis === 'x' ? P.L : P.W;
-  P.pos = clamp(P.pos, -P.gap, maxPos);
+  const M = model();
+  const maxPos = P.axis === 'x' ? M.lenA : M.lenB;
+  if (P.pos == null) P.pos = Math.round(maxPos / 2 * 10) / 10;
+  P.pos = clamp(P.pos, 0.2, maxPos - 0.2);
   for (const [k, c] of Object.entries(ctrls)) {
     c.r.value = P[k]; if (document.activeElement !== c.n) c.n.value = P[k];
     if (c.row && c.it.show) c.row.hidden = !c.it.show();
   }
+  [0, 1, 2, 3].forEach(i => ['n', 'e'].forEach((k, j) => { const inp = document.getElementById(`c${i}${k}`); if (document.activeElement !== inp) inp.value = P.coords[i][j].toFixed(2); }));
+  const L = sideLen(M);
+  document.getElementById('geomInfo').innerHTML = `Стороны: А ${fmt(L.A)}, Б ${fmt(L.B)}, С ${fmt(L.C)}, D ${fmt(L.D)} м. Углы: ${M.angles.map((a, i) => `${i + 1} — ${dms(a)}`).join(', ')}. Площадь ${fmt(M.area, 2)} м².`;
   for (const [k, id] of Object.entries(toggles)) document.getElementById(id).checked = P[k];
   document.querySelectorAll('[data-st]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.st === P.stage)));
   document.querySelectorAll('[data-fm]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.fm === P.finishMode)));
   document.querySelectorAll('[data-axis]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.axis === P.axis)));
   document.querySelectorAll('[data-zoom]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.zoom === P.zoom)));
-  secPos.min = -P.gap; secPos.max = maxPos; secPos.step = 0.1; secPos.value = P.pos;
+  secPos.min = 0.2; secPos.max = (maxPos - 0.2).toFixed(1); secPos.step = 0.1; secPos.value = P.pos;
   document.getElementById('secPosOut').textContent = `${fmt(P.pos, 1)} м`;
   document.getElementById('stageTxt').textContent = STAGE_TXT[P.stage]();
   document.getElementById('stageChip').innerHTML = `Этап ${P.stage} · <b>${STAGES[P.stage]}</b>`;
-  document.querySelector('.ctrl .head h1').textContent = `Участок ${fmt(P.L, 1).replace(',0', '')} × ${fmt(P.W, 1).replace(',0', '')} м`;
+  document.querySelector('.ctrl .head h1').textContent = `Участок ${fmt(M.area, 0)} м²`;
   rebuild(); drawSection(); renderResults();
 }
 
